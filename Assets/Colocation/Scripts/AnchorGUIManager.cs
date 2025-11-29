@@ -1011,7 +1011,7 @@ public class AnchorGUIManager : MonoBehaviour
             var spatialAnchor = anchorGameObject.AddComponent<OVRSpatialAnchor>();
 
             // Wait for anchor creation
-            int timeout = 100; // 100 frames ~= 1. 67 seconds at 60fps
+            int timeout = 1000; // 100 frames ~= 1. 67 seconds at 60fps
             while (!spatialAnchor.Created && timeout > 0)
             {
                 await System.Threading.Tasks.Task.Yield();

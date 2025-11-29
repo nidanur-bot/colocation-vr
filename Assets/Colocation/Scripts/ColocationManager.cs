@@ -13,37 +13,37 @@ public class ColocationManager : NetworkBehaviour
 
     private Guid _sharedAnchorGroupId;
 
-public override void Spawned()
-{
-    base. Spawned();
+    public override void Spawned()
+    {
+        base. Spawned();
     
-#if UNITY_ANDROID && !UNITY_EDITOR
-    // Real colocation on Quest device
-    PrepareColocation();
-#else
-    // Simulated colocation for Editor testing
-    Debug.Log("Colocation: Running in SIMULATION mode (Editor)");
-    SimulateColocation();
-#endif
-}
+    #if UNITY_ANDROID && !UNITY_EDITOR
+        // Real colocation on Quest device
+        PrepareColocation();
+    #else
+        // Simulated colocation for Editor testing
+        Debug.Log("Colocation: Running in SIMULATION mode (Editor)");
+        SimulateColocation();
+    #endif
+    }
 
-// Add this new method at the bottom of the class
-#if UNITY_EDITOR
-private void SimulateColocation()
-{
-    if (Object.HasStateAuthority)
+    // Add this new method at the bottom of the class
+    #if UNITY_EDITOR
+    private void SimulateColocation()
     {
-        // Simulate HOST
-        _sharedAnchorGroupId = System.Guid.NewGuid();
-        Debug.Log($"[SIMULATED] Colocation: HOST session started.  Group UUID: {_sharedAnchorGroupId}");
+        if (Object.HasStateAuthority)
+        {
+            // Simulate HOST
+            _sharedAnchorGroupId = System.Guid.NewGuid();
+            Debug.Log($"[SIMULATED] Colocation: HOST session started.  Group UUID: {_sharedAnchorGroupId}");
+        }
+        else
+        {
+            // Simulate CLIENT
+            Debug.Log($"[SIMULATED] Colocation: CLIENT discovery started");
+        }
     }
-    else
-    {
-        // Simulate CLIENT
-        Debug.Log($"[SIMULATED] Colocation: CLIENT discovery started");
-    }
-}
-#endif
+    #endif
 
     private void PrepareColocation()
     {
