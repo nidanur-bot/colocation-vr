@@ -34,6 +34,9 @@ public class AnchorGUIManager : MonoBehaviour
 
     [Header("Manual UUID Input")]
     [SerializeField] private TMP_InputField groupUuidInputField;
+    [Header("Room Name Input")]
+    [SerializeField] private TMP_InputField roomNameInputField;  // NEW - for entering room name
+    [SerializeField] private TextMeshProUGUI roomNameDisplayText;  // NEW - shows current room
     [SerializeField] private Button loadFromUuidButton;
     [SerializeField] private Button copyUuidButton;
 
@@ -239,39 +242,48 @@ public class AnchorGUIManager : MonoBehaviour
 
     private void OnHostSessionClicked()
     {
-        if (colocationManager == null)
+    #if FUSION2
+        // Get room name from input field
+        string roomName = roomNameInputField != null ? roomNameInputField.text. Trim() : "";
+    
+        if (string.IsNullOrEmpty(roomName))
         {
-            LogStatus("ColocationManager not assigned!", true);
+            LogStatus("Please enter a room name!", true);
             return;
         }
 
-        LogStatus("Starting HOST session...");
+        LogStatus($"Creating Photon room: {roomName}.. .");
         SetSessionState(SessionState.Hosting);
         isHost = true;
 
-        // This assumes you've added a public method to ColocationManager
-        // colocationManager.StartHostSession();
-
-        // For now, simulate the host workflow
-        StartHostSessionSimulated();
+        // Start Photon Fusion session as HOST
+        StartPhotonHostSession(roomName);
+    #else
+            LogStatus("Photon Fusion not available!", true);
+    #endif
     }
 
     private void OnJoinSessionClicked()
     {
-        if (colocationManager == null)
+    #if FUSION2
+        // Get room name from input field
+        string roomName = roomNameInputField != null ? roomNameInputField.text.Trim() : "";
+    
+        if (string.IsNullOrEmpty(roomName))
         {
-            LogStatus("ColocationManager not assigned!", true);
+            LogStatus("Please enter a room name!", true);
             return;
         }
 
-        LogStatus("Searching for nearby sessions...");
+        LogStatus($"Joining Photon room: {roomName}...");
         SetSessionState(SessionState.Discovering);
         isHost = false;
 
-        // This assumes you've added a public method to ColocationManager
-        // colocationManager.StartClientDiscovery();
-
-        StartClientDiscoverySimulated();
+        // Join Photon Fusion session as CLIENT
+        StartPhotonClientSession(roomName);
+    #else
+            LogStatus("Photon Fusion not available!", true);
+    #endif
     }
 
     #endregion
@@ -788,13 +800,35 @@ public class AnchorGUIManager : MonoBehaviour
     {
         if (groupUuidText == null) return;
 
+    #if FUSION2
+        // Try to show Photon room name
+        var runner = FindObjectOfType<Fusion.NetworkRunner>();
+        if (runner != null && runner.IsRunning)
+        {
+            string roomName = runner.SessionInfo.Name;
+            string role = runner.IsServer ? "HOST" : "CLIENT";
+            groupUuidText.text = $"Room: {roomName} ({role})";
+        
+            // Also update room name display if exists
+            if (roomNameDisplayText != null)
+            {
+                roomNameDisplayText.text = $"Connected to: {roomName}";
+            }
+            return;
+        }
+    #endif
+
+        // Fallback to UUID display
         if (currentGroupUuid == Guid.Empty)
         {
-            groupUuidText.text = "Group UUID: None";
+            groupUuidText.text = "Room: None";
+            if (roomNameDisplayText != null)
+            {
+                roomNameDisplayText.text = "Not connected";
+            }
         }
         else
         {
-            // Show truncated UUID for readability
             string shortUuid = currentGroupUuid.ToString().Substring(0, 13) + "...";
             groupUuidText.text = $"Group: {shortUuid}";
         }
@@ -1041,41 +1075,123 @@ public class AnchorGUIManager : MonoBehaviour
 
     // These are temporary methods to simulate functionality
     // Replace these with actual calls to ColocationManager once you add public methods
+    #region Photon Fusion Integration
 
-    private async void StartHostSessionSimulated()
+#if FUSION2
+private async void StartPhotonHostSession(string roomName)
+{
+    var runner = FindObjectOfType<Fusion. NetworkRunner>();
+    
+    if (runner == null)
     {
-        // Simulate async operation
-        await System.Threading.Tasks.Task.Delay(500);
+        LogStatus("NetworkRunner not found in scene!", true);
+        SetSessionState(SessionState.Idle);
+        return;
+    }
 
-        // Generate a new Group UUID
-        currentGroupUuid = Guid.NewGuid();
-
-        LogStatus($"✓ HOST session started!\nGroup UUID: {currentGroupUuid.ToString().Substring(0, 13)}...");
-
-        // Update input field
-        if (groupUuidInputField != null)
+    try
+    {
+        // Start Fusion as Host
+        var result = await runner.StartGame(new Fusion.StartGameArgs
         {
-            groupUuidInputField.text = currentGroupUuid.ToString();
+            GameMode = Fusion.GameMode.Host,
+            SessionName = roomName,
+            SceneManager = runner.GetComponent<Fusion.INetworkSceneManager>()
+            // Remove the Scene parameter - Fusion will use current scene automatically
+        });
+
+        if (result.Ok)
+        {
+            LogStatus($"✓ Hosting room: {roomName}");
+            
+            // ColocationManager will automatically create and share anchor! 
+            // Wait a moment for it to complete
+            await System.Threading.Tasks. Task.Delay(2000);
+            
+            // Get UUID from ColocationManager
+            if (colocationManager != null && ! string.IsNullOrEmpty(colocationManager.GroupUuidString. Value))
+            {
+                if (Guid.TryParse(colocationManager.GroupUuidString. Value, out Guid uuid))
+                {
+                    currentGroupUuid = uuid;
+                    LogStatus($"✓ Room ready!  UUID: {uuid.ToString().Substring(0, 13)}...");
+                }
+            }
+            
+            SetSessionState(SessionState. Idle);
+            UpdateAllUI();
         }
-
-        SetSessionState(SessionState.Idle);
-        UpdateAllUI();
-
-        // TODO: Replace with actual ColocationManager call:
-        // colocationManager.StartHostSession();
+        else
+        {
+            LogStatus($"✗ Failed to host: {result.ErrorMessage}", true);
+            SetSessionState(SessionState.Idle);
+        }
     }
-
-    private async void StartClientDiscoverySimulated()
+    catch (Exception e)
     {
-        // Simulate async operation
-        await System.Threading.Tasks.Task.Delay(1000);
-
-        LogStatus("⚠ Discovery simulation - enter UUID manually or implement real discovery");
-        SetSessionState(SessionState.Idle);
-
-        // TODO: Replace with actual ColocationManager call:
-        // colocationManager.StartClientDiscovery();
+        LogStatus($"✗ Error hosting: {e.Message}", true);
+        SetSessionState(SessionState. Idle);
     }
+}
+
+private async void StartPhotonClientSession(string roomName)
+{
+    var runner = FindObjectOfType<Fusion.NetworkRunner>();
+    
+    if (runner == null)
+    {
+        LogStatus("NetworkRunner not found in scene!", true);
+        SetSessionState(SessionState.Idle);
+        return;
+    }
+
+    try
+    {
+       // Join Fusion session as Client
+    var result = await runner.StartGame(new Fusion. StartGameArgs
+    {
+        GameMode = Fusion.GameMode. Client,
+        SessionName = roomName,
+        SceneManager = runner.GetComponent<Fusion. INetworkSceneManager>()
+        // Remove the Scene parameter - Fusion will use current scene automatically
+    });
+
+        if (result.Ok)
+        {
+            LogStatus($"✓ Joined room: {roomName}.  Waiting for anchor...");
+            
+            // ColocationManager will automatically receive UUID and load anchor!
+            // Wait for it to complete
+            await System. Threading.Tasks.Task.Delay(3000);
+            
+            // Check if UUID was received
+            if (colocationManager != null && !string.IsNullOrEmpty(colocationManager.GroupUuidString.Value))
+            {
+                if (Guid.TryParse(colocationManager.GroupUuidString. Value, out Guid uuid))
+                {
+                    currentGroupUuid = uuid;
+                    LogStatus($"✓ Anchor loaded! UUID: {uuid.ToString(). Substring(0, 13)}...");
+                }
+            }
+            
+            SetSessionState(SessionState.Idle);
+            UpdateAllUI();
+        }
+        else
+        {
+            LogStatus($"✗ Failed to join: {result.ErrorMessage}", true);
+            SetSessionState(SessionState.Idle);
+        }
+    }
+    catch (Exception e)
+    {
+        LogStatus($"✗ Error joining: {e.Message}", true);
+        SetSessionState(SessionState.Idle);
+    }
+}
+#endif
+
+    #endregion
 
     #endregion
 
