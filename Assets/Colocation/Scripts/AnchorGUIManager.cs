@@ -1126,45 +1126,51 @@ public class AnchorGUIManager : MonoBehaviour
 #if FUSION2
 private async void StartPhotonHostSession(string roomName)
 {
-    var runner = FindObjectOfType<Fusion. NetworkRunner>();
+    // Cleanup any existing NetworkRunner first! 
+    CleanupNetworkRunner();
+    
+    // Find or create new NetworkRunner
+    var runner = FindObjectOfType<Fusion.NetworkRunner>();
     
     if (runner == null)
     {
-        LogStatus("NetworkRunner not found in scene!", true);
-        SetSessionState(SessionState.Idle);
-        return;
+        // Create new NetworkRunner GameObject
+        var runnerGO = new GameObject("NetworkRunner");
+        runner = runnerGO.AddComponent<Fusion.NetworkRunner>();
+        runner. ProvideInput = true; // Important for input handling
+        
+        Debug.Log("[AnchorGUI] Created new NetworkRunner for hosting");
     }
 
     try
     {
-        // Start Fusion as Host
+        LogStatus($"Creating Photon room: {roomName}.. .");
+        
         var result = await runner.StartGame(new Fusion.StartGameArgs
         {
             GameMode = Fusion.GameMode.Host,
             SessionName = roomName,
             SceneManager = runner.GetComponent<Fusion.INetworkSceneManager>()
-            // Remove the Scene parameter - Fusion will use current scene automatically
         });
 
         if (result.Ok)
         {
             LogStatus($"✓ Hosting room: {roomName}");
             
-            // ColocationManager will automatically create and share anchor! 
-            // Wait a moment for it to complete
-            await System.Threading.Tasks. Task.Delay(2000);
+            // Wait for ColocationManager to create and share anchor
+            await System.Threading.Tasks.Task. Delay(2000);
             
             // Get UUID from ColocationManager
             if (colocationManager != null && ! string.IsNullOrEmpty(colocationManager.GroupUuidString. Value))
             {
-                if (Guid.TryParse(colocationManager.GroupUuidString. Value, out Guid uuid))
+                if (Guid.TryParse(colocationManager.GroupUuidString.Value, out Guid uuid))
                 {
                     currentGroupUuid = uuid;
-                    LogStatus($"✓ Room ready!  UUID: {uuid.ToString().Substring(0, 13)}...");
+                    LogStatus($"✓ Room ready!  UUID: {uuid. ToString(). Substring(0, 13)}.. .");
                 }
             }
             
-            SetSessionState(SessionState. Idle);
+            SetSessionState(SessionState.Idle);
             UpdateAllUI();
         }
         else
@@ -1182,33 +1188,39 @@ private async void StartPhotonHostSession(string roomName)
 
 private async void StartPhotonClientSession(string roomName)
 {
-    var runner = FindObjectOfType<Fusion.NetworkRunner>();
+    // Cleanup any existing NetworkRunner first! 
+    CleanupNetworkRunner();
+    
+    // Find or create new NetworkRunner
+    var runner = FindObjectOfType<Fusion. NetworkRunner>();
     
     if (runner == null)
     {
-        LogStatus("NetworkRunner not found in scene!", true);
-        SetSessionState(SessionState.Idle);
-        return;
+        // Create new NetworkRunner GameObject
+        var runnerGO = new GameObject("NetworkRunner");
+        runner = runnerGO.AddComponent<Fusion.NetworkRunner>();
+        runner.ProvideInput = true;
+        
+        Debug.Log("[AnchorGUI] Created new NetworkRunner for joining");
     }
 
     try
     {
-       // Join Fusion session as Client
-    var result = await runner.StartGame(new Fusion. StartGameArgs
-    {
-        GameMode = Fusion.GameMode. Client,
-        SessionName = roomName,
-        SceneManager = runner.GetComponent<Fusion. INetworkSceneManager>()
-        // Remove the Scene parameter - Fusion will use current scene automatically
-    });
+        LogStatus($"Joining Photon room: {roomName}...");
+        
+        var result = await runner.StartGame(new Fusion.StartGameArgs
+        {
+            GameMode = Fusion.GameMode.Client,
+            SessionName = roomName,
+            SceneManager = runner.GetComponent<Fusion.INetworkSceneManager>()
+        });
 
-        if (result.Ok)
+        if (result. Ok)
         {
             LogStatus($"✓ Joined room: {roomName}.  Waiting for anchor...");
             
-            // ColocationManager will automatically receive UUID and load anchor!
-            // Wait for it to complete
-            await System. Threading.Tasks.Task.Delay(3000);
+            // Wait for ColocationManager to receive UUID and load anchor
+            await System.Threading. Tasks.Task.Delay(3000);
             
             // Check if UUID was received
             if (colocationManager != null && !string.IsNullOrEmpty(colocationManager.GroupUuidString.Value))
@@ -1233,6 +1245,28 @@ private async void StartPhotonClientSession(string roomName)
     {
         LogStatus($"✗ Error joining: {e.Message}", true);
         SetSessionState(SessionState.Idle);
+    }
+}
+
+// Add this NEW helper method
+private void CleanupNetworkRunner()
+{
+    var existingRunner = FindObjectOfType<Fusion.NetworkRunner>();
+    
+    if (existingRunner != null)
+    {
+        Debug.Log("[AnchorGUI] Cleaning up existing NetworkRunner");
+        
+        // Shutdown if running
+        if (existingRunner. IsRunning)
+        {
+            existingRunner.Shutdown();
+        }
+        
+        // Destroy the GameObject
+        Destroy(existingRunner.gameObject);
+        
+        Debug.Log("[AnchorGUI] NetworkRunner cleaned up");
     }
 }
 #endif
