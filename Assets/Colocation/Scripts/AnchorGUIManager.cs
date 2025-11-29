@@ -154,6 +154,7 @@ public class AnchorGUIManager : MonoBehaviour
             // colocationManager.OnAnchorCreated += OnAnchorCreated;
             // colocationManager. OnAnchorsLoaded += OnAnchorsLoaded;
         }
+        SetupInputFieldsForQuest();
 
         // Initial UI state
         UpdateAllUI();
@@ -167,7 +168,50 @@ public class AnchorGUIManager : MonoBehaviour
         isInitialized = true;
         LogStatus("Anchor GUI initialized.  Ready to use.");
     }
-
+    // Add this NEW method
+    private void SetupInputFieldsForQuest()
+    {
+#if UNITY_ANDROID && !UNITY_EDITOR
+    
+    if (roomNameInputField != null)
+    {
+        // Force show keyboard on select
+        roomNameInputField.onSelect.AddListener((string text) => {
+            Debug.Log("[AnchorGUI] Room name input selected - showing keyboard");
+            TouchScreenKeyboard.Open(
+                roomNameInputField.text, 
+                TouchScreenKeyboardType.Default, 
+                false, // autocorrection
+                false, // multiline
+                false  // secure
+            );
+        });
+        
+        // Make sure mobile input is not hidden
+        roomNameInputField. shouldHideMobileInput = false;
+        roomNameInputField.shouldHideSoftKeyboard = false;
+    }
+    
+    if (groupUuidInputField != null)
+    {
+        // Force show keyboard on select
+        groupUuidInputField.onSelect.AddListener((string text) => {
+            Debug.Log("[AnchorGUI] UUID input selected - showing keyboard");
+            TouchScreenKeyboard.Open(
+                groupUuidInputField.text, 
+                TouchScreenKeyboardType.Default, 
+                false, 
+                false, 
+                false
+            );
+        });
+        
+        groupUuidInputField.shouldHideMobileInput = false;
+        groupUuidInputField.shouldHideSoftKeyboard = false;
+    }
+    
+#endif
+    }
     private void CleanupGUI()
     {
         Application.logMessageReceived -= OnLogMessageReceived;
@@ -242,7 +286,7 @@ public class AnchorGUIManager : MonoBehaviour
 
     private void OnHostSessionClicked()
     {
-    #if FUSION2
+#if FUSION2
         // Get room name from input field
         string roomName = roomNameInputField != null ? roomNameInputField.text. Trim() : "";
     
@@ -258,14 +302,14 @@ public class AnchorGUIManager : MonoBehaviour
 
         // Start Photon Fusion session as HOST
         StartPhotonHostSession(roomName);
-    #else
-            LogStatus("Photon Fusion not available!", true);
-    #endif
+#else
+        LogStatus("Photon Fusion not available!", true);
+#endif
     }
 
     private void OnJoinSessionClicked()
     {
-    #if FUSION2
+#if FUSION2
         // Get room name from input field
         string roomName = roomNameInputField != null ? roomNameInputField.text.Trim() : "";
     
@@ -281,9 +325,9 @@ public class AnchorGUIManager : MonoBehaviour
 
         // Join Photon Fusion session as CLIENT
         StartPhotonClientSession(roomName);
-    #else
-            LogStatus("Photon Fusion not available!", true);
-    #endif
+#else
+        LogStatus("Photon Fusion not available!", true);
+#endif
     }
 
     #endregion
@@ -530,7 +574,8 @@ public class AnchorGUIManager : MonoBehaviour
         // Show confirmation dialog
         ShowConfirmationDialog(
             $"Are you sure you want to clear {currentAnchors.Count} anchor(s)?",
-            () => {
+            () =>
+            {
                 // Destroy all anchor GameObjects
                 foreach (var anchor in currentAnchors)
                 {
@@ -738,7 +783,8 @@ public class AnchorGUIManager : MonoBehaviour
 
         ShowConfirmationDialog(
             $"Delete Anchor #{index + 1}? ",
-            () => {
+            () =>
+            {
                 var anchor = currentAnchors[index];
                 if (anchor != null && anchor.gameObject != null)
                 {
@@ -800,7 +846,7 @@ public class AnchorGUIManager : MonoBehaviour
     {
         if (groupUuidText == null) return;
 
-    #if FUSION2
+#if FUSION2
         // Try to show Photon room name
         var runner = FindObjectOfType<Fusion.NetworkRunner>();
         if (runner != null && runner.IsRunning)
@@ -816,7 +862,7 @@ public class AnchorGUIManager : MonoBehaviour
             }
             return;
         }
-    #endif
+#endif
 
         // Fallback to UUID display
         if (currentGroupUuid == Guid.Empty)
