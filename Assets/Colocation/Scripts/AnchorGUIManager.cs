@@ -3,40 +3,33 @@ using UnityEngine.UI;
 using TMPro;
 using System;
 using System.Collections.Generic;
+using Image = UnityEngine.UI.Image;
+using Debug = UnityEngine.Debug;
+using Application = UnityEngine.Application;
 
 #if FUSION2
 using Fusion;
 #endif
 
-/// <summary>
-/// GUI Manager for spatial anchor creation, saving, loading, and sharing in VR.
-/// Integrates with ColocationManager and AlignmentManager.
-/// </summary>
 public class AnchorGUIManager : MonoBehaviour
 {
-    #region Serialized Fields
-
-    [Header("Manager References")]
-    [Tooltip("Reference to the ColocationManager script")]
-    [SerializeField] private ColocationManager colocationManager;
-
-    [Tooltip("Reference to the AlignmentManager script")]
-    [SerializeField] private AlignmentManager alignmentManager;
-
     [Header("Main Action Buttons")]
     [SerializeField] private Button hostSessionButton;
     [SerializeField] private Button joinSessionButton;
+    [SerializeField] private Button leaveSessionButton;
     [SerializeField] private Button createAnchorButton;
     [SerializeField] private Button saveAnchorButton;
     [SerializeField] private Button loadAnchorsButton;
     [SerializeField] private Button shareAnchorsButton;
     [SerializeField] private Button clearAnchorsButton;
 
+    [Header("Room Name Selection")]
+    [SerializeField] private TMP_Dropdown roomNameDropdown;
+    [SerializeField] private TMP_InputField roomNameInputField;
+    [SerializeField] private TextMeshProUGUI roomNameDisplayText;
+
     [Header("Manual UUID Input")]
     [SerializeField] private TMP_InputField groupUuidInputField;
-    [Header("Room Name Input")]
-    [SerializeField] private TMP_InputField roomNameInputField;  // NEW - for entering room name
-    [SerializeField] private TextMeshProUGUI roomNameDisplayText;  // NEW - shows current room
     [SerializeField] private Button loadFromUuidButton;
     [SerializeField] private Button copyUuidButton;
 
@@ -47,24 +40,6 @@ public class AnchorGUIManager : MonoBehaviour
     [SerializeField] private TextMeshProUGUI connectionStateText;
     [SerializeField] private Image statusIndicator;
 
-    [Header("Anchor List Panel")]
-    [SerializeField] private GameObject anchorListPanel;
-    [SerializeField] private Transform anchorListContainer;
-    [SerializeField] private GameObject anchorListItemPrefab;
-    [SerializeField] private Button toggleAnchorListButton;
-    [SerializeField] private Button closeAnchorListButton;
-
-    [Header("UI Panels")]
-    [SerializeField] private GameObject mainPanel;
-    [SerializeField] private GameObject statusPanel;
-    [SerializeField] private GameObject debugPanel;
-
-    [Header("Debug Panel")]
-    [SerializeField] private TextMeshProUGUI debugLogText;
-    [SerializeField] private Toggle showDebugToggle;
-    [SerializeField] private Button clearDebugButton;
-    [SerializeField] private ScrollRect debugScrollRect;
-
     [Header("Confirmation Dialog")]
     [SerializeField] private GameObject confirmationDialog;
     [SerializeField] private TextMeshProUGUI confirmationText;
@@ -73,66 +48,50 @@ public class AnchorGUIManager : MonoBehaviour
 
     [Header("Settings")]
     [SerializeField] private float anchorCreationDistance = 1.5f;
-    [SerializeField] private bool autoAlignOnLoad = true;
     [SerializeField] private Color hostColor = Color.green;
     [SerializeField] private Color clientColor = Color.cyan;
     [SerializeField] private Color idleColor = Color.gray;
 
-    #endregion
-
-    #region Private Fields
-
-    private List<OVRSpatialAnchor> currentAnchors = new List<OVRSpatialAnchor>();
-    private List<GameObject> anchorListItems = new List<GameObject>();
-    private bool isHost = false;
-    private bool isInitialized = false;
-    private Guid currentGroupUuid = Guid.Empty;
+    private List<OVRSpatialAnchor> currentAnchors;
+    private bool isHost;
+    private Guid currentGroupUuid;
     private Transform cameraTransform;
     private Action pendingConfirmationAction;
+    // Room name options
+    private readonly string[] roomNameOptions = new string[]
+    {
+    "Mars",
+    "Venus",
+    "Jupiter",
+    "Saturn",
+    "Nebula",
+    "Comet",
+    "Custom..."
+    };
 
-    // State tracking
+    private const int CUSTOM_ROOM_INDEX = 6;
+#if FUSION2
+    private NetworkRunner networkRunner;
+#endif
+
     private enum SessionState
     {
         Idle,
         Hosting,
-        Discovering,
+        Connected,
         Loading,
-        Sharing,
-        Aligning
+        Sharing
     }
 
-    private SessionState currentState = SessionState.Idle;
-
-    #endregion
-
-    #region Unity Lifecycle
+    private SessionState currentState;
 
     private void Start()
     {
-        InitializeGUI();
-    }
+        currentAnchors = new List<OVRSpatialAnchor>();
+        currentGroupUuid = Guid.Empty;
+        currentState = SessionState.Idle;
+        isHost = false;
 
-    private void OnDestroy()
-    {
-        CleanupGUI();
-    }
-
-    private void Update()
-    {
-        // Update UI elements that need real-time updates
-        if (isInitialized)
-        {
-            UpdateStatusIndicator();
-        }
-    }
-
-    #endregion
-
-    #region Initialization
-
-    private void InitializeGUI()
-    {
-        // Get camera reference
         cameraTransform = Camera.main?.transform;
         if (cameraTransform == null)
         {
@@ -140,101 +99,32 @@ public class AnchorGUIManager : MonoBehaviour
             return;
         }
 
-        // Setup button listeners
         SetupButtonListeners();
-
-        // Subscribe to Unity log messages for debug panel
-        Application.logMessageReceived += OnLogMessageReceived;
-
-        // Subscribe to ColocationManager events if available
-        if (colocationManager != null)
-        {
-            // Note: You'll need to add these events to ColocationManager
-            // colocationManager.OnSessionStarted += OnSessionStarted;
-            // colocationManager.OnAnchorCreated += OnAnchorCreated;
-            // colocationManager. OnAnchorsLoaded += OnAnchorsLoaded;
-        }
-        SetupInputFieldsForQuest();
-
-        // Initial UI state
+        SetupInputFields();
+        InitializeRoomDropdown();
         UpdateAllUI();
-        SetSessionState(SessionState.Idle);
 
-        // Hide panels initially
-        if (anchorListPanel != null) anchorListPanel.SetActive(false);
-        if (debugPanel != null) debugPanel.SetActive(false);
-        if (confirmationDialog != null) confirmationDialog.SetActive(false);
+        if (confirmationDialog != null)
+            confirmationDialog.SetActive(false);
 
-        isInitialized = true;
-        LogStatus("Anchor GUI initialized.  Ready to use.");
+        LogStatus("Anchor GUI initialized");
     }
-    // Add this NEW method
-    private void SetupInputFieldsForQuest()
-    {
-#if UNITY_ANDROID && !UNITY_EDITOR
-    
-    if (roomNameInputField != null)
-    {
-        // Force show keyboard on select
-        roomNameInputField.onSelect.AddListener((string text) => {
-            Debug.Log("[AnchorGUI] Room name input selected - showing keyboard");
-            TouchScreenKeyboard.Open(
-                roomNameInputField.text, 
-                TouchScreenKeyboardType.Default, 
-                false, // autocorrection
-                false, // multiline
-                false  // secure
-            );
-        });
-        
-        // Make sure mobile input is not hidden
-        roomNameInputField. shouldHideMobileInput = false;
-        roomNameInputField.shouldHideSoftKeyboard = false;
-    }
-    
-    if (groupUuidInputField != null)
-    {
-        // Force show keyboard on select
-        groupUuidInputField.onSelect.AddListener((string text) => {
-            Debug.Log("[AnchorGUI] UUID input selected - showing keyboard");
-            TouchScreenKeyboard.Open(
-                groupUuidInputField.text, 
-                TouchScreenKeyboardType.Default, 
-                false, 
-                false, 
-                false
-            );
-        });
-        
-        groupUuidInputField.shouldHideMobileInput = false;
-        groupUuidInputField.shouldHideSoftKeyboard = false;
-    }
-    
-#endif
-    }
-    private void CleanupGUI()
-    {
-        Application.logMessageReceived -= OnLogMessageReceived;
 
-        // Unsubscribe from ColocationManager events
-        if (colocationManager != null)
-        {
-            // colocationManager.OnSessionStarted -= OnSessionStarted;
-            // etc.
-        }
-
-        // Clear anchor list
-        ClearAnchorListUI();
+    private void Update()
+    {
+        UpdateStatusIndicator();
     }
 
     private void SetupButtonListeners()
     {
-        // Main action buttons
         if (hostSessionButton != null)
             hostSessionButton.onClick.AddListener(OnHostSessionClicked);
 
         if (joinSessionButton != null)
             joinSessionButton.onClick.AddListener(OnJoinSessionClicked);
+
+        if (leaveSessionButton != null)
+            leaveSessionButton.onClick.AddListener(OnLeaveSessionClicked);
 
         if (createAnchorButton != null)
             createAnchorButton.onClick.AddListener(OnCreateAnchorClicked);
@@ -251,28 +141,12 @@ public class AnchorGUIManager : MonoBehaviour
         if (clearAnchorsButton != null)
             clearAnchorsButton.onClick.AddListener(OnClearAnchorsClicked);
 
-        // Manual UUID input
         if (loadFromUuidButton != null)
             loadFromUuidButton.onClick.AddListener(OnLoadFromUuidClicked);
 
         if (copyUuidButton != null)
             copyUuidButton.onClick.AddListener(OnCopyUuidClicked);
 
-        // Anchor list panel
-        if (toggleAnchorListButton != null)
-            toggleAnchorListButton.onClick.AddListener(OnToggleAnchorListClicked);
-
-        if (closeAnchorListButton != null)
-            closeAnchorListButton.onClick.AddListener(() => anchorListPanel.SetActive(false));
-
-        // Debug panel
-        if (showDebugToggle != null)
-            showDebugToggle.onValueChanged.AddListener(OnDebugToggleChanged);
-
-        if (clearDebugButton != null)
-            clearDebugButton.onClick.AddListener(OnClearDebugClicked);
-
-        // Confirmation dialog
         if (confirmYesButton != null)
             confirmYesButton.onClick.AddListener(OnConfirmationYes);
 
@@ -280,28 +154,38 @@ public class AnchorGUIManager : MonoBehaviour
             confirmNoButton.onClick.AddListener(OnConfirmationNo);
     }
 
-    #endregion
-
-    #region Button Handlers - Session Management
+    private void SetupInputFields()
+    {
+#if UNITY_ANDROID && !UNITY_EDITOR
+        if (roomNameInputField != null)
+        {
+            roomNameInputField. shouldHideMobileInput = false;
+            roomNameInputField. shouldHideSoftKeyboard = false;
+        }
+        
+        if (groupUuidInputField != null)
+        {
+            groupUuidInputField.shouldHideMobileInput = false;
+            groupUuidInputField.shouldHideSoftKeyboard = false;
+        }
+#endif
+    }
 
     private void OnHostSessionClicked()
     {
 #if FUSION2
-        // Get room name from input field
-        string roomName = roomNameInputField != null ? roomNameInputField.text. Trim() : "";
+    string roomName = GetSelectedRoomName();  // ← Use helper method
     
-        if (string.IsNullOrEmpty(roomName))
-        {
-            LogStatus("Please enter a room name!", true);
-            return;
-        }
+    if (string.IsNullOrEmpty(roomName))
+    {
+        LogStatus("Please select or enter a room name!", true);
+        return;
+    }
 
-        LogStatus($"Creating Photon room: {roomName}.. .");
-        SetSessionState(SessionState.Hosting);
-        isHost = true;
-
-        // Start Photon Fusion session as HOST
-        StartPhotonHostSession(roomName);
+    Debug.Log("[AnchorGUI] Hosting room: " + roomName);
+    LogStatus("Creating Photon room: " + roomName);
+    isHost = true;
+    StartPhotonHostSession(roomName);
 #else
         LogStatus("Photon Fusion not available!", true);
 #endif
@@ -310,29 +194,272 @@ public class AnchorGUIManager : MonoBehaviour
     private void OnJoinSessionClicked()
     {
 #if FUSION2
-        // Get room name from input field
-        string roomName = roomNameInputField != null ? roomNameInputField.text.Trim() : "";
+    string roomName = GetSelectedRoomName();  // ← Use helper method
     
-        if (string.IsNullOrEmpty(roomName))
-        {
-            LogStatus("Please enter a room name!", true);
-            return;
-        }
+    if (string.IsNullOrEmpty(roomName))
+    {
+        LogStatus("Please select or enter a room name!", true);
+        return;
+    }
 
-        LogStatus($"Joining Photon room: {roomName}...");
-        SetSessionState(SessionState.Discovering);
-        isHost = false;
-
-        // Join Photon Fusion session as CLIENT
-        StartPhotonClientSession(roomName);
+    Debug.Log("[AnchorGUI] Joining room: " + roomName);
+    LogStatus("Joining Photon room: " + roomName);
+    isHost = false;
+    StartPhotonClientSession(roomName);
 #else
         LogStatus("Photon Fusion not available!", true);
 #endif
     }
+#if FUSION2
 
-    #endregion
+    private async void OnLeaveSessionClicked()
+    {
+        Debug.Log("[AnchorGUI] Leave Session clicked");
+        LogStatus("Leaving session...");
+        
+        try
+        {
+            if (networkRunner != null && networkRunner.IsRunning)
+            {
+                Debug.Log("[AnchorGUI] Shutting down NetworkRunner");
+                await networkRunner. Shutdown();
+                
+                // Optional: Destroy the runner GameObject
+                if (networkRunner.gameObject != null)
+                {
+                    Destroy(networkRunner.gameObject);
+                }
+                
+                networkRunner = null;
+                Debug.Log("[AnchorGUI] NetworkRunner shut down successfully");
+            }
+            else
+            {
+                Debug.Log("[AnchorGUI] No active NetworkRunner to shut down");
+            }
+            
+            // Reset state
+            isHost = false;
+            SetSessionState(SessionState.Idle);
+            
+            LogStatus("Left session");
+            UpdateAllUI();
+        }
+        catch (Exception e)
+        {
+            Debug.LogError("[AnchorGUI] Error leaving session: " + e);
+            LogStatus("Error leaving session: " + e.Message, true);
+        }
+    }
 
-    #region Button Handlers - Anchor Operations
+#endif
+#if FUSION2
+
+    private async void StartPhotonHostSession(string roomName)
+    {
+        try
+        {
+            SetSessionState(SessionState.Hosting);
+            
+            networkRunner = FindObjectOfType<NetworkRunner>();
+            
+            if (networkRunner == null)
+            {
+                Debug.Log("[AnchorGUI] Creating new NetworkRunner");
+                var runnerGO = new GameObject("NetworkRunner");
+                networkRunner = runnerGO.AddComponent<NetworkRunner>();
+                DontDestroyOnLoad(runnerGO);
+            }
+            else if (networkRunner.IsRunning)
+            {
+                Debug.Log("[AnchorGUI] Shutting down existing session");
+                await networkRunner. Shutdown();
+                await System.Threading.Tasks.Task. Delay(500);
+            }
+
+            networkRunner. ProvideInput = true;
+            
+            Debug.Log("[AnchorGUI] Starting Host for room: " + roomName);
+            
+            var result = await networkRunner.StartGame(new StartGameArgs
+            {
+                GameMode = GameMode.Host,
+                SessionName = roomName,
+                SceneManager = networkRunner.GetComponent<INetworkSceneManager>()
+            });
+
+            if (result.Ok)
+            {
+                Debug. Log("[AnchorGUI] Host started successfully");
+                LogStatus("Hosting room: " + roomName);
+                SetSessionState(SessionState.Connected);
+                
+                await System.Threading.Tasks.Task. Delay(1000);
+                await CreateHostAnchor();
+                
+                UpdateAllUI();
+            }
+            else
+            {
+                Debug. LogError("[AnchorGUI] Host failed: " + result.ShutdownReason);
+                LogStatus("Failed to host: " + result.ShutdownReason, true);
+                SetSessionState(SessionState.Idle);
+            }
+        }
+        catch (Exception e)
+        {
+            Debug.LogError("[AnchorGUI] Host exception: " + e);
+            LogStatus("Error: " + e.Message, true);
+            SetSessionState(SessionState.Idle);
+        }
+    }
+
+    private async void StartPhotonClientSession(string roomName)
+    {
+        try
+        {
+            SetSessionState(SessionState. Hosting);
+            
+            networkRunner = FindObjectOfType<NetworkRunner>();
+            
+            if (networkRunner == null)
+            {
+                Debug.Log("[AnchorGUI] Creating new NetworkRunner");
+                var runnerGO = new GameObject("NetworkRunner");
+                networkRunner = runnerGO. AddComponent<NetworkRunner>();
+                DontDestroyOnLoad(runnerGO);
+            }
+            else if (networkRunner. IsRunning)
+            {
+                Debug.Log("[AnchorGUI] Shutting down existing session");
+                await networkRunner. Shutdown();
+                await System. Threading.Tasks.Task.Delay(500);
+            }
+
+            networkRunner.ProvideInput = true;
+            
+            Debug. Log("[AnchorGUI] Starting Client for room: " + roomName);
+            
+            var result = await networkRunner.StartGame(new StartGameArgs
+            {
+                GameMode = GameMode.Client,
+                SessionName = roomName,
+                SceneManager = networkRunner.GetComponent<INetworkSceneManager>()
+            });
+
+            if (result.Ok)
+            {
+                Debug.Log("[AnchorGUI] Client joined successfully");
+                LogStatus("Joined room: " + roomName);
+                SetSessionState(SessionState. Connected);
+                
+                await System.Threading.Tasks.Task. Delay(2000);
+                
+                if (currentGroupUuid != Guid.Empty)
+                {
+                    await LoadSharedAnchors();
+                }
+                
+                UpdateAllUI();
+            }
+            else
+            {
+                Debug.LogError("[AnchorGUI] Join failed: " + result.ShutdownReason);
+                LogStatus("Failed to join: " + result.ShutdownReason, true);
+                SetSessionState(SessionState.Idle);
+            }
+        }
+        catch (Exception e)
+        {
+            Debug.LogError("[AnchorGUI] Join exception: " + e);
+            LogStatus("Error: " + e.Message, true);
+            SetSessionState(SessionState. Idle);
+        }
+    }
+
+    private async System.Threading.Tasks.Task CreateHostAnchor()
+    {
+        if (! isHost) return;
+        
+        Debug.Log("[AnchorGUI] Host creating colocation anchor");
+        
+        var anchor = await CreateAnchorAtPosition(Vector3.zero, Quaternion.identity);
+        
+        if (anchor != null)
+        {
+            currentAnchors.Add(anchor);
+            
+            var saveResult = await anchor.SaveAnchorAsync();
+            if (saveResult.Success)
+            {
+                Debug.Log("[AnchorGUI] Host anchor saved");
+                
+                currentGroupUuid = Guid.NewGuid();
+                
+                var shareResult = await OVRSpatialAnchor.ShareAsync(
+                    new List<OVRSpatialAnchor> { anchor }, 
+                    currentGroupUuid
+                );
+                
+                if (shareResult.Success)
+                {
+                    Debug.Log("[AnchorGUI] Anchor shared with UUID: " + currentGroupUuid);
+                    LogStatus("Room ready!  UUID: " + currentGroupUuid. ToString(). Substring(0, 13) + "...");
+                    UpdateAllUI();
+                }
+                else
+                {
+                    Debug.LogError("[AnchorGUI] Failed to share anchor: " + shareResult.Status);
+                }
+            }
+        }
+    }
+
+    private async System.Threading.Tasks.Task LoadSharedAnchors()
+    {
+        if (currentGroupUuid == Guid.Empty)
+        {
+            Debug.LogWarning("[AnchorGUI] No UUID to load from");
+            return;
+        }
+        
+        SetSessionState(SessionState.Loading);
+        LogStatus("Loading shared anchors...");
+        
+        var unboundAnchors = new List<OVRSpatialAnchor. UnboundAnchor>();
+        var loadResult = await OVRSpatialAnchor.LoadUnboundSharedAnchorsAsync(
+            currentGroupUuid,
+            unboundAnchors
+        );
+
+        if (loadResult.Success && unboundAnchors.Count > 0)
+        {
+            foreach (var unboundAnchor in unboundAnchors)
+            {
+                bool localized = await unboundAnchor.LocalizeAsync();
+                if (localized)
+                {
+                    var anchorGO = new GameObject("SharedAnchor_" + unboundAnchor. Uuid. ToString(). Substring(0, 8));
+                    var spatialAnchor = anchorGO.AddComponent<OVRSpatialAnchor>();
+                    unboundAnchor. BindTo(spatialAnchor);
+                    currentAnchors.Add(spatialAnchor);
+                    
+                    Debug.Log("[AnchorGUI] Loaded shared anchor: " + unboundAnchor.Uuid);
+                }
+            }
+            
+            LogStatus("Loaded " + unboundAnchors.Count + " anchor(s)");
+        }
+        else
+        {
+            LogStatus("No shared anchors found", true);
+        }
+        
+        SetSessionState(SessionState.Connected);
+        UpdateAllUI();
+    }
+
+#endif
 
     private async void OnCreateAnchorClicked()
     {
@@ -346,32 +473,25 @@ public class AnchorGUIManager : MonoBehaviour
 
         try
         {
-            // Calculate anchor position (in front of user)
-            Vector3 anchorPosition = cameraTransform.position +
-                                    cameraTransform.forward * anchorCreationDistance;
-
-            // Use ground level (Y = 0) for consistency
+            Vector3 anchorPosition = cameraTransform.position + cameraTransform.forward * anchorCreationDistance;
             anchorPosition.y = 0;
 
-            // Create the anchor
             var anchor = await CreateAnchorAtPosition(anchorPosition, Quaternion.identity);
 
             if (anchor != null)
             {
                 currentAnchors.Add(anchor);
-                LogStatus($"✓ Anchor created!  UUID: {anchor.Uuid.ToString().Substring(0, 8)}.. .");
-                RefreshAnchorList();
+                LogStatus("Anchor created!  UUID: " + anchor.Uuid.ToString().Substring(0, 8) + "...");
                 UpdateAllUI();
             }
             else
             {
-                LogStatus("✗ Failed to create anchor", true);
+                LogStatus("Failed to create anchor", true);
             }
         }
         catch (Exception e)
         {
-            LogStatus($"✗ Error creating anchor: {e.Message}", true);
-            Debug.LogError($"[AnchorGUI] Exception in CreateAnchor: {e}");
+            LogStatus("Error: " + e.Message, true);
         }
     }
 
@@ -383,46 +503,28 @@ public class AnchorGUIManager : MonoBehaviour
             return;
         }
 
-        LogStatus($"Saving {currentAnchors.Count} anchor(s)...");
+        LogStatus("Saving " + currentAnchors.Count + " anchor(s)...");
 
         try
         {
             int savedCount = 0;
-            int failedCount = 0;
-
             foreach (var anchor in currentAnchors)
             {
                 if (anchor == null) continue;
 
                 var saveResult = await anchor.SaveAnchorAsync();
-
                 if (saveResult.Success)
                 {
                     savedCount++;
-                    Debug.Log($"[AnchorGUI] Saved anchor: {anchor.Uuid}");
-                }
-                else
-                {
-                    failedCount++;
-                    Debug.LogWarning($"[AnchorGUI] Failed to save anchor {anchor.Uuid}: {saveResult.Status}");
                 }
             }
 
-            if (failedCount == 0)
-            {
-                LogStatus($"✓ All {savedCount} anchor(s) saved successfully!");
-            }
-            else
-            {
-                LogStatus($"⚠ Saved {savedCount}, Failed {failedCount}", true);
-            }
-
+            LogStatus("Saved " + savedCount + "/" + currentAnchors.Count + " anchor(s)");
             UpdateAllUI();
         }
         catch (Exception e)
         {
-            LogStatus($"✗ Error saving anchors: {e.Message}", true);
-            Debug.LogError($"[AnchorGUI] Exception in SaveAnchors: {e}");
+            LogStatus("Error: " + e.Message, true);
         }
     }
 
@@ -434,75 +536,9 @@ public class AnchorGUIManager : MonoBehaviour
             return;
         }
 
-        LogStatus($"Loading anchors from group.. .");
-        SetSessionState(SessionState.Loading);
-
-        try
-        {
-            var unboundAnchors = new List<OVRSpatialAnchor.UnboundAnchor>();
-            var loadResult = await OVRSpatialAnchor.LoadUnboundSharedAnchorsAsync(
-                currentGroupUuid,
-                unboundAnchors
-            );
-
-            if (!loadResult.Success)
-            {
-                LogStatus($"✗ Failed to load anchors: {loadResult.Status}", true);
-                SetSessionState(SessionState.Idle);
-                return;
-            }
-
-            if (unboundAnchors.Count == 0)
-            {
-                LogStatus("No anchors found in this group", true);
-                SetSessionState(SessionState.Idle);
-                return;
-            }
-
-            LogStatus($"Found {unboundAnchors.Count} anchor(s).  Localizing...");
-
-            int localizedCount = 0;
-            foreach (var unboundAnchor in unboundAnchors)
-            {
-                bool localized = await unboundAnchor.LocalizeAsync();
-
-                if (localized)
-                {
-                    // Create GameObject and bind anchor
-                    var anchorGO = new GameObject($"LoadedAnchor_{unboundAnchor.Uuid.ToString().Substring(0, 8)}");
-                    var spatialAnchor = anchorGO.AddComponent<OVRSpatialAnchor>();
-                    unboundAnchor.BindTo(spatialAnchor);
-
-                    currentAnchors.Add(spatialAnchor);
-                    localizedCount++;
-
-                    Debug.Log($"[AnchorGUI] Localized anchor: {unboundAnchor.Uuid}");
-
-                    // Auto-align to first anchor if enabled
-                    if (autoAlignOnLoad && localizedCount == 1 && alignmentManager != null)
-                    {
-                        LogStatus("Auto-aligning to anchor...");
-                        SetSessionState(SessionState.Aligning);
-                        alignmentManager.AlignUserToAnchor(spatialAnchor);
-                    }
-                }
-                else
-                {
-                    Debug.LogWarning($"[AnchorGUI] Failed to localize anchor: {unboundAnchor.Uuid}");
-                }
-            }
-
-            RefreshAnchorList();
-            LogStatus($"✓ Loaded and localized {localizedCount}/{unboundAnchors.Count} anchors");
-            SetSessionState(SessionState.Idle);
-            UpdateAllUI();
-        }
-        catch (Exception e)
-        {
-            LogStatus($"✗ Error loading anchors: {e.Message}", true);
-            Debug.LogError($"[AnchorGUI] Exception in LoadAnchors: {e}");
-            SetSessionState(SessionState.Idle);
-        }
+#if FUSION2
+        await LoadSharedAnchors();
+#endif
     }
 
     private async void OnShareAnchorsClicked()
@@ -515,16 +551,14 @@ public class AnchorGUIManager : MonoBehaviour
 
         if (currentGroupUuid == Guid.Empty)
         {
-            LogStatus("No Group UUID! Please host a session first.", true);
-            return;
+            currentGroupUuid = Guid.NewGuid();
         }
 
-        LogStatus($"Sharing {currentAnchors.Count} anchor(s)...");
+        LogStatus("Sharing " + currentAnchors.Count + " anchor(s)...");
         SetSessionState(SessionState.Sharing);
 
         try
         {
-            // Filter out null anchors
             var validAnchors = new List<OVRSpatialAnchor>();
             foreach (var anchor in currentAnchors)
             {
@@ -537,7 +571,7 @@ public class AnchorGUIManager : MonoBehaviour
             if (validAnchors.Count == 0)
             {
                 LogStatus("No valid anchors to share!", true);
-                SetSessionState(SessionState.Idle);
+                SetSessionState(SessionState.Connected);
                 return;
             }
 
@@ -545,21 +579,20 @@ public class AnchorGUIManager : MonoBehaviour
 
             if (shareResult.Success)
             {
-                LogStatus($"✓ Successfully shared {validAnchors.Count} anchor(s)!");
+                LogStatus("Shared " + validAnchors.Count + " anchor(s)!");
             }
             else
             {
-                LogStatus($"✗ Failed to share anchors: {shareResult.Status}", true);
+                LogStatus("Failed to share: " + shareResult.Status, true);
             }
 
-            SetSessionState(SessionState.Idle);
+            SetSessionState(SessionState.Connected);
             UpdateAllUI();
         }
         catch (Exception e)
         {
-            LogStatus($"✗ Error sharing anchors: {e.Message}", true);
-            Debug.LogError($"[AnchorGUI] Exception in ShareAnchors: {e}");
-            SetSessionState(SessionState.Idle);
+            LogStatus("Error: " + e.Message, true);
+            SetSessionState(SessionState.Connected);
         }
     }
 
@@ -571,12 +604,10 @@ public class AnchorGUIManager : MonoBehaviour
             return;
         }
 
-        // Show confirmation dialog
         ShowConfirmationDialog(
-            $"Are you sure you want to clear {currentAnchors.Count} anchor(s)?",
+            "Clear " + currentAnchors.Count + " anchor(s)?",
             () =>
             {
-                // Destroy all anchor GameObjects
                 foreach (var anchor in currentAnchors)
                 {
                     if (anchor != null && anchor.gameObject != null)
@@ -586,45 +617,34 @@ public class AnchorGUIManager : MonoBehaviour
                 }
 
                 currentAnchors.Clear();
-                RefreshAnchorList();
-                LogStatus("✓ All anchors cleared");
+                LogStatus("Anchors cleared");
                 UpdateAllUI();
             }
         );
     }
 
-    #endregion
-
-    #region Button Handlers - Manual UUID
-
     private void OnLoadFromUuidClicked()
     {
-        if (groupUuidInputField == null)
-        {
-            LogStatus("UUID input field not assigned!", true);
-            return;
-        }
+        if (groupUuidInputField == null) return;
 
         string uuidString = groupUuidInputField.text.Trim();
 
         if (string.IsNullOrEmpty(uuidString))
         {
-            LogStatus("Please enter a Group UUID", true);
+            LogStatus("Please enter a UUID", true);
             return;
         }
 
         if (Guid.TryParse(uuidString, out Guid parsedGuid))
         {
             currentGroupUuid = parsedGuid;
-            LogStatus($"✓ Group UUID set: {currentGroupUuid.ToString().Substring(0, 13)}...");
+            LogStatus("UUID set: " + currentGroupUuid.ToString().Substring(0, 13) + "...");
             UpdateAllUI();
-
-            // Automatically trigger load
             OnLoadAnchorsClicked();
         }
         else
         {
-            LogStatus("✗ Invalid UUID format", true);
+            LogStatus("Invalid UUID format", true);
         }
     }
 
@@ -637,171 +657,8 @@ public class AnchorGUIManager : MonoBehaviour
         }
 
         GUIUtility.systemCopyBuffer = currentGroupUuid.ToString();
-        LogStatus("✓ UUID copied to clipboard!");
+        LogStatus("UUID copied!");
     }
-
-    #endregion
-
-    #region Button Handlers - UI Controls
-
-    private void OnToggleAnchorListClicked()
-    {
-        if (anchorListPanel != null)
-        {
-            bool newState = !anchorListPanel.activeSelf;
-            anchorListPanel.SetActive(newState);
-
-            if (newState)
-            {
-                RefreshAnchorList();
-            }
-        }
-    }
-
-    private void OnDebugToggleChanged(bool isOn)
-    {
-        if (debugPanel != null)
-        {
-            debugPanel.SetActive(isOn);
-        }
-    }
-
-    private void OnClearDebugClicked()
-    {
-        if (debugLogText != null)
-        {
-            debugLogText.text = "[Debug Log Cleared]\n";
-        }
-    }
-
-    #endregion
-
-    #region Anchor List Management
-
-    private void RefreshAnchorList()
-    {
-        if (anchorListContainer == null || anchorListItemPrefab == null)
-        {
-            return;
-        }
-
-        // Clear existing items
-        ClearAnchorListUI();
-
-        // Create new items for each anchor
-        for (int i = 0; i < currentAnchors.Count; i++)
-        {
-            var anchor = currentAnchors[i];
-            if (anchor == null) continue;
-
-            GameObject listItem = Instantiate(anchorListItemPrefab, anchorListContainer);
-            anchorListItems.Add(listItem);
-
-            // Find components in the prefab
-            var texts = listItem.GetComponentsInChildren<TextMeshProUGUI>();
-            var buttons = listItem.GetComponentsInChildren<Button>();
-
-            // Set anchor info text
-            if (texts.Length > 0)
-            {
-                string anchorInfo = $"Anchor #{i + 1}\n" +
-                                  $"UUID: {anchor.Uuid.ToString().Substring(0, 13)}...\n" +
-                                  $"Localized: {(anchor.Localized ? "✓" : "✗")}\n" +
-                                  $"Position: ({anchor.transform.position.x:F2}, " +
-                                  $"{anchor.transform.position.y:F2}, " +
-                                  $"{anchor.transform.position.z:F2})";
-
-                texts[0].text = anchorInfo;
-            }
-
-            // Setup buttons
-            if (buttons.Length > 0)
-            {
-                // Align button
-                OVRSpatialAnchor capturedAnchor = anchor; // Capture for closure
-                int capturedIndex = i;
-
-                buttons[0].onClick.RemoveAllListeners();
-                buttons[0].onClick.AddListener(() => AlignToAnchor(capturedAnchor, capturedIndex));
-
-                // Delete button (if there's a second button)
-                if (buttons.Length > 1)
-                {
-                    buttons[1].onClick.RemoveAllListeners();
-                    buttons[1].onClick.AddListener(() => DeleteAnchor(capturedIndex));
-                }
-            }
-        }
-    }
-
-    private void ClearAnchorListUI()
-    {
-        foreach (var item in anchorListItems)
-        {
-            if (item != null)
-            {
-                Destroy(item);
-            }
-        }
-        anchorListItems.Clear();
-    }
-
-    private void AlignToAnchor(OVRSpatialAnchor anchor, int index)
-    {
-        if (anchor == null)
-        {
-            LogStatus($"Anchor #{index + 1} is null!", true);
-            return;
-        }
-
-        if (!anchor.Localized)
-        {
-            LogStatus($"Anchor #{index + 1} is not localized yet!", true);
-            return;
-        }
-
-        if (alignmentManager == null)
-        {
-            LogStatus("AlignmentManager not assigned!", true);
-            return;
-        }
-
-        LogStatus($"Aligning to Anchor #{index + 1}.. .");
-        SetSessionState(SessionState.Aligning);
-        alignmentManager.AlignUserToAnchor(anchor);
-
-        // Reset state after a delay
-        Invoke(nameof(ResetToIdleState), 2f);
-    }
-
-    private void DeleteAnchor(int index)
-    {
-        if (index < 0 || index >= currentAnchors.Count)
-        {
-            return;
-        }
-
-        ShowConfirmationDialog(
-            $"Delete Anchor #{index + 1}? ",
-            () =>
-            {
-                var anchor = currentAnchors[index];
-                if (anchor != null && anchor.gameObject != null)
-                {
-                    Destroy(anchor.gameObject);
-                }
-
-                currentAnchors.RemoveAt(index);
-                RefreshAnchorList();
-                LogStatus($"✓ Anchor #{index + 1} deleted");
-                UpdateAllUI();
-            }
-        );
-    }
-
-    #endregion
-
-    #region UI Update Methods
 
     private void UpdateAllUI()
     {
@@ -817,27 +674,16 @@ public class AnchorGUIManager : MonoBehaviour
 
         string stateText = "IDLE";
 
-        switch (currentState)
-        {
-            case SessionState.Idle:
-                stateText = isHost ? "HOST (Idle)" : "CLIENT (Idle)";
-                break;
-            case SessionState.Hosting:
-                stateText = "HOST (Advertising)";
-                break;
-            case SessionState.Discovering:
-                stateText = "CLIENT (Discovering)";
-                break;
-            case SessionState.Loading:
-                stateText = "Loading Anchors...";
-                break;
-            case SessionState.Sharing:
-                stateText = "Sharing Anchors...";
-                break;
-            case SessionState.Aligning:
-                stateText = "Aligning... ";
-                break;
-        }
+        if (currentState == SessionState.Idle)
+            stateText = "IDLE";
+        else if (currentState == SessionState.Hosting)
+            stateText = "Hosting... ";
+        else if (currentState == SessionState.Connected)
+            stateText = isHost ? "HOST (Connected)" : "CLIENT (Connected)";
+        else if (currentState == SessionState.Loading)
+            stateText = "Loading Anchors...";
+        else if (currentState == SessionState.Sharing)
+            stateText = "Sharing Anchors...";
 
         connectionStateText.text = stateText;
     }
@@ -847,36 +693,29 @@ public class AnchorGUIManager : MonoBehaviour
         if (groupUuidText == null) return;
 
 #if FUSION2
-        // Try to show Photon room name
-        var runner = FindObjectOfType<Fusion.NetworkRunner>();
-        if (runner != null && runner.IsRunning)
+        if (networkRunner != null && networkRunner.IsRunning)
         {
-            string roomName = runner.SessionInfo.Name;
-            string role = runner.IsServer ? "HOST" : "CLIENT";
-            groupUuidText.text = $"Room: {roomName} ({role})";
-        
-            // Also update room name display if exists
+            string roomName = networkRunner.SessionInfo.Name;
+            string role = networkRunner.IsServer ? "HOST" : "CLIENT";
+            groupUuidText.text = "Room: " + roomName + " (" + role + ")";
+            
             if (roomNameDisplayText != null)
             {
-                roomNameDisplayText.text = $"Connected to: {roomName}";
+                roomNameDisplayText.text = "Connected: " + roomName;
             }
             return;
         }
 #endif
 
-        // Fallback to UUID display
         if (currentGroupUuid == Guid.Empty)
         {
-            groupUuidText.text = "Room: None";
+            groupUuidText.text = "UUID: None";
             if (roomNameDisplayText != null)
-            {
                 roomNameDisplayText.text = "Not connected";
-            }
         }
         else
         {
-            string shortUuid = currentGroupUuid.ToString().Substring(0, 13) + "...";
-            groupUuidText.text = $"Group: {shortUuid}";
+            groupUuidText.text = "UUID: " + currentGroupUuid.ToString().Substring(0, 13) + "... ";
         }
     }
 
@@ -888,41 +727,42 @@ public class AnchorGUIManager : MonoBehaviour
         foreach (var anchor in currentAnchors)
         {
             if (anchor != null && anchor.Localized)
-            {
                 localizedCount++;
-            }
         }
 
-        anchorCountText.text = $"Anchors: {currentAnchors.Count} ({localizedCount} localized)";
+        anchorCountText.text = "Anchors: " + currentAnchors.Count + " (" + localizedCount + " localized)";
     }
 
     private void UpdateButtonStates()
     {
-        // Host/Join buttons
         bool canStartSession = (currentState == SessionState.Idle);
-        if (hostSessionButton != null) hostSessionButton.interactable = canStartSession;
-        if (joinSessionButton != null) joinSessionButton.interactable = canStartSession;
+        bool inSession = (currentState == SessionState.Connected || currentState == SessionState.Hosting);
 
-        // Create anchor - always available
-        if (createAnchorButton != null) createAnchorButton.interactable = true;
+        if (hostSessionButton != null)
+            hostSessionButton.interactable = canStartSession;
 
-        // Save - only if we have anchors
+        if (joinSessionButton != null)
+            joinSessionButton.interactable = canStartSession;
+
+        // ADD THIS:
+        if (leaveSessionButton != null)
+            leaveSessionButton.interactable = inSession;  // Only enabled when in a session
+
+        if (createAnchorButton != null)
+            createAnchorButton.interactable = true;
+
         if (saveAnchorButton != null)
             saveAnchorButton.interactable = currentAnchors.Count > 0;
 
-        // Share - only if host and have anchors
         if (shareAnchorsButton != null)
-            shareAnchorsButton.interactable = isHost && currentAnchors.Count > 0 && currentGroupUuid != Guid.Empty;
+            shareAnchorsButton.interactable = currentAnchors.Count > 0 && inSession;
 
-        // Load - only if we have a group UUID
         if (loadAnchorsButton != null)
             loadAnchorsButton.interactable = currentGroupUuid != Guid.Empty;
 
-        // Clear - only if we have anchors
         if (clearAnchorsButton != null)
             clearAnchorsButton.interactable = currentAnchors.Count > 0;
 
-        // Copy UUID - only if we have a UUID
         if (copyUuidButton != null)
             copyUuidButton.interactable = currentGroupUuid != Guid.Empty;
     }
@@ -933,43 +773,25 @@ public class AnchorGUIManager : MonoBehaviour
 
         Color indicatorColor = idleColor;
 
-        switch (currentState)
-        {
-            case SessionState.Idle:
-                indicatorColor = idleColor;
-                break;
-            case SessionState.Hosting:
-            case SessionState.Sharing:
-                indicatorColor = hostColor;
-                break;
-            case SessionState.Discovering:
-            case SessionState.Loading:
-            case SessionState.Aligning:
-                indicatorColor = clientColor;
-                break;
-        }
+        if (currentState == SessionState.Idle)
+            indicatorColor = idleColor;
+        else if (currentState == SessionState.Hosting)
+            indicatorColor = hostColor;
+        else if (currentState == SessionState.Connected)
+            indicatorColor = isHost ? hostColor : clientColor;
+        else if (currentState == SessionState.Loading)
+            indicatorColor = clientColor;
+        else if (currentState == SessionState.Sharing)
+            indicatorColor = hostColor;
 
         statusIndicator.color = indicatorColor;
     }
-
-    #endregion
-
-    #region State Management
 
     private void SetSessionState(SessionState newState)
     {
         currentState = newState;
         UpdateAllUI();
     }
-
-    private void ResetToIdleState()
-    {
-        SetSessionState(SessionState.Idle);
-    }
-
-    #endregion
-
-    #region Status and Logging
 
     private void LogStatus(string message, bool isError = false)
     {
@@ -979,54 +801,15 @@ public class AnchorGUIManager : MonoBehaviour
             statusText.color = isError ? Color.red : Color.white;
         }
 
-        string logPrefix = isError ? "[AnchorGUI ERROR]" : "[AnchorGUI]";
         if (isError)
         {
-            Debug.LogWarning($"{logPrefix} {message}");
+            Debug.LogWarning("[AnchorGUI] " + message);
         }
         else
         {
-            Debug.Log($"{logPrefix} {message}");
+            Debug.Log("[AnchorGUI] " + message);
         }
     }
-    private void OnLogMessageReceived(string message, string stackTrace, UnityEngine.LogType type)
-    {
-        // Only log messages containing "Colocation" or "Anchor"
-        if (!message.Contains("Colocation") && !message.Contains("Anchor"))
-        {
-            return;
-        }
-
-        if (debugLogText != null && debugPanel != null && debugPanel.activeSelf)
-        {
-            string colorCode = type switch
-            {
-                UnityEngine.LogType.Error => "<color=red>",
-                UnityEngine.LogType.Warning => "<color=yellow>",
-                UnityEngine.LogType.Log => "<color=white>",
-                _ => "<color=gray>"
-            };
-
-            string timestamp = DateTime.Now.ToString("HH:mm:ss");
-            debugLogText.text += $"\n{colorCode}[{timestamp}] {message}</color>";
-
-            // Limit log length to prevent memory issues
-            if (debugLogText.text.Length > 10000)
-            {
-                debugLogText.text = debugLogText.text.Substring(debugLogText.text.Length - 8000);
-            }
-
-            // Auto-scroll to bottom
-            if (debugScrollRect != null)
-            {
-                Canvas.ForceUpdateCanvases();
-                debugScrollRect.verticalNormalizedPosition = 0f;
-            }
-        }
-    }
-    #endregion
-
-    #region Confirmation Dialog
 
     private void ShowConfirmationDialog(string message, Action onConfirm)
     {
@@ -1037,22 +820,15 @@ public class AnchorGUIManager : MonoBehaviour
         }
 
         confirmationDialog.SetActive(true);
-
         if (confirmationText != null)
-        {
             confirmationText.text = message;
-        }
-
         pendingConfirmationAction = onConfirm;
     }
 
     private void OnConfirmationYes()
     {
         if (confirmationDialog != null)
-        {
             confirmationDialog.SetActive(false);
-        }
-
         pendingConfirmationAction?.Invoke();
         pendingConfirmationAction = null;
     }
@@ -1060,38 +836,21 @@ public class AnchorGUIManager : MonoBehaviour
     private void OnConfirmationNo()
     {
         if (confirmationDialog != null)
-        {
             confirmationDialog.SetActive(false);
-        }
-
         pendingConfirmationAction = null;
     }
 
-    #endregion
-
-    #region Helper Methods - Anchor Operations
-
-    private async System.Threading.Tasks.Task<OVRSpatialAnchor> CreateAnchorAtPosition(
-        Vector3 position,
-        Quaternion rotation)
+    private async System.Threading.Tasks.Task<OVRSpatialAnchor> CreateAnchorAtPosition(Vector3 position, Quaternion rotation)
     {
         try
         {
-            // Create GameObject for anchor
-            var anchorGameObject = new GameObject($"Anchor_{DateTime.Now:HHmmss}")
-            {
-                transform =
-                {
-                    position = position,
-                    rotation = rotation
-                }
-            };
+            var anchorGameObject = new GameObject("Anchor_" + DateTime.Now.ToString("HHmmss"));
+            anchorGameObject.transform.position = position;
+            anchorGameObject.transform.rotation = rotation;
 
-            // Add OVRSpatialAnchor component
             var spatialAnchor = anchorGameObject.AddComponent<OVRSpatialAnchor>();
 
-            // Wait for anchor creation
-            int timeout = 1000; // 100 frames ~= 1. 67 seconds at 60fps
+            int timeout = 100;
             while (!spatialAnchor.Created && timeout > 0)
             {
                 await System.Threading.Tasks.Task.Yield();
@@ -1100,227 +859,101 @@ public class AnchorGUIManager : MonoBehaviour
 
             if (!spatialAnchor.Created)
             {
-                Debug.LogError("[AnchorGUI] Anchor creation timed out!");
+                Debug.LogError("[AnchorGUI] Anchor creation timed out");
                 Destroy(anchorGameObject);
                 return null;
             }
 
-            Debug.Log($"[AnchorGUI] Anchor created successfully.  UUID: {spatialAnchor.Uuid}");
+            Debug.Log("[AnchorGUI] Anchor created: " + spatialAnchor.Uuid);
             return spatialAnchor;
         }
         catch (Exception e)
         {
-            Debug.LogError($"[AnchorGUI] Error during anchor creation: {e.Message}");
+            Debug.LogError("[AnchorGUI] Anchor creation error: " + e.Message);
             return null;
         }
     }
 
-    #endregion
-
-    #region Simulated Methods (Replace with actual ColocationManager calls)
-
-    // These are temporary methods to simulate functionality
-    // Replace these with actual calls to ColocationManager once you add public methods
-    #region Photon Fusion Integration
-
-#if FUSION2
-private async void StartPhotonHostSession(string roomName)
-{
-    // Cleanup any existing NetworkRunner first! 
-    CleanupNetworkRunner();
-    
-    // Find or create new NetworkRunner
-    var runner = FindObjectOfType<Fusion.NetworkRunner>();
-    
-    if (runner == null)
+    private void InitializeRoomDropdown()
     {
-        // Create new NetworkRunner GameObject
-        var runnerGO = new GameObject("NetworkRunner");
-        runner = runnerGO.AddComponent<Fusion.NetworkRunner>();
-        runner. ProvideInput = true; // Important for input handling
-        
-        Debug.Log("[AnchorGUI] Created new NetworkRunner for hosting");
+        if (roomNameDropdown == null)
+        {
+            Debug.LogWarning("[AnchorGUI] Room name dropdown not assigned!");
+            return;
+        }
+
+        // Clear existing options
+        roomNameDropdown.ClearOptions();
+
+        // Add our room name options
+        roomNameDropdown.AddOptions(new List<string>(roomNameOptions));
+
+        // Set default selection to first option (Mars)
+        roomNameDropdown.value = 0;
+        roomNameDropdown.RefreshShownValue();
+
+        // Listen for dropdown changes
+        roomNameDropdown.onValueChanged.AddListener(OnRoomNameDropdownChanged);
+
+        // Make sure input field is hidden initially
+        if (roomNameInputField != null)
+        {
+            roomNameInputField.gameObject.SetActive(false);
+        }
+
+        Debug.Log("[AnchorGUI] Room dropdown initialized with " + roomNameOptions.Length + " options");
     }
-
-    try
+    private void OnRoomNameDropdownChanged(int index)
     {
-        LogStatus($"Creating Photon room: {roomName}.. .");
-        
-        var result = await runner.StartGame(new Fusion.StartGameArgs
-        {
-            GameMode = Fusion.GameMode.Host,
-            SessionName = roomName,
-            SceneManager = runner.GetComponent<Fusion.INetworkSceneManager>()
-        });
+        if (roomNameInputField == null) return;
 
-        if (result.Ok)
+        // Show input field only when "Custom..." is selected
+        if (index == CUSTOM_ROOM_INDEX)
         {
-            LogStatus($"✓ Hosting room: {roomName}");
-            
-            // Wait for ColocationManager to create and share anchor
-            await System.Threading.Tasks.Task. Delay(2000);
-            
-            // Get UUID from ColocationManager
-            if (colocationManager != null && ! string.IsNullOrEmpty(colocationManager.GroupUuidString. Value))
-            {
-                if (Guid.TryParse(colocationManager.GroupUuidString.Value, out Guid uuid))
-                {
-                    currentGroupUuid = uuid;
-                    LogStatus($"✓ Room ready!  UUID: {uuid. ToString(). Substring(0, 13)}.. .");
-                }
-            }
-            
-            SetSessionState(SessionState.Idle);
-            UpdateAllUI();
+            roomNameInputField.gameObject.SetActive(true);
+            roomNameInputField.text = "";  // Clear any old text
+            Debug.Log("[AnchorGUI] Custom room name selected - input field shown");
         }
         else
         {
-            LogStatus($"✗ Failed to host: {result.ErrorMessage}", true);
-            SetSessionState(SessionState.Idle);
+            // Hide input field for preset selections
+            roomNameInputField.gameObject.SetActive(false);
+            Debug.Log("[AnchorGUI] Preset room selected: " + roomNameOptions[index]);
         }
     }
-    catch (Exception e)
+    private string GetSelectedRoomName()
     {
-        LogStatus($"✗ Error hosting: {e.Message}", true);
-        SetSessionState(SessionState. Idle);
-    }
-}
-
-private async void StartPhotonClientSession(string roomName)
-{
-    // Cleanup any existing NetworkRunner first! 
-    CleanupNetworkRunner();
-    
-    // Find or create new NetworkRunner
-    var runner = FindObjectOfType<Fusion. NetworkRunner>();
-    
-    if (runner == null)
-    {
-        // Create new NetworkRunner GameObject
-        var runnerGO = new GameObject("NetworkRunner");
-        runner = runnerGO.AddComponent<Fusion.NetworkRunner>();
-        runner.ProvideInput = true;
-        
-        Debug.Log("[AnchorGUI] Created new NetworkRunner for joining");
-    }
-
-    try
-    {
-        LogStatus($"Joining Photon room: {roomName}...");
-        
-        var result = await runner.StartGame(new Fusion.StartGameArgs
+        if (roomNameDropdown == null)
         {
-            GameMode = Fusion.GameMode.Client,
-            SessionName = roomName,
-            SceneManager = runner.GetComponent<Fusion.INetworkSceneManager>()
-        });
+            Debug.LogWarning("[AnchorGUI] Dropdown not assigned!");
+            return "";
+        }
 
-        if (result. Ok)
+        int selectedIndex = roomNameDropdown.value;
+
+        // If "Custom..." is selected, get name from input field
+        if (selectedIndex == CUSTOM_ROOM_INDEX)
         {
-            LogStatus($"✓ Joined room: {roomName}.  Waiting for anchor...");
-            
-            // Wait for ColocationManager to receive UUID and load anchor
-            await System.Threading. Tasks.Task.Delay(3000);
-            
-            // Check if UUID was received
-            if (colocationManager != null && !string.IsNullOrEmpty(colocationManager.GroupUuidString.Value))
+            if (roomNameInputField != null)
             {
-                if (Guid.TryParse(colocationManager.GroupUuidString. Value, out Guid uuid))
-                {
-                    currentGroupUuid = uuid;
-                    LogStatus($"✓ Anchor loaded! UUID: {uuid.ToString(). Substring(0, 13)}...");
-                }
+                string customName = roomNameInputField.text.Trim();
+                Debug.Log("[AnchorGUI] Using custom room name: " + customName);
+                return customName;
             }
-            
-            SetSessionState(SessionState.Idle);
-            UpdateAllUI();
+            else
+            {
+                Debug.LogWarning("[AnchorGUI] Input field not assigned!");
+                return "";
+            }
         }
-        else
+        // Otherwise, use preset from dropdown
+        else if (selectedIndex >= 0 && selectedIndex < roomNameOptions.Length)
         {
-            LogStatus($"✗ Failed to join: {result.ErrorMessage}", true);
-            SetSessionState(SessionState.Idle);
-        }
-    }
-    catch (Exception e)
-    {
-        LogStatus($"✗ Error joining: {e.Message}", true);
-        SetSessionState(SessionState.Idle);
-    }
-}
-
-// Add this NEW helper method
-private void CleanupNetworkRunner()
-{
-    var existingRunner = FindObjectOfType<Fusion.NetworkRunner>();
-    
-    if (existingRunner != null)
-    {
-        Debug.Log("[AnchorGUI] Cleaning up existing NetworkRunner");
-        
-        // Shutdown if running
-        if (existingRunner. IsRunning)
-        {
-            existingRunner.Shutdown();
-        }
-        
-        // Destroy the GameObject
-        Destroy(existingRunner.gameObject);
-        
-        Debug.Log("[AnchorGUI] NetworkRunner cleaned up");
-    }
-}
-#endif
-
-    #endregion
-
-    #endregion
-
-    #region Public API (for external scripts to call)
-
-    /// <summary>
-    /// Manually set the Group UUID (useful when receiving it from networking)
-    /// </summary>
-    public void SetGroupUuid(Guid uuid)
-    {
-        currentGroupUuid = uuid;
-        LogStatus($"Group UUID set externally: {uuid.ToString().Substring(0, 13)}.. .");
-
-        if (groupUuidInputField != null)
-        {
-            groupUuidInputField.text = uuid.ToString();
+            string presetName = roomNameOptions[selectedIndex];
+            Debug.Log("[AnchorGUI] Using preset room name: " + presetName);
+            return presetName;
         }
 
-        UpdateAllUI();
+        return "";
     }
-
-    /// <summary>
-    /// Get the current Group UUID
-    /// </summary>
-    public Guid GetGroupUuid()
-    {
-        return currentGroupUuid;
-    }
-
-    /// <summary>
-    /// Get list of current anchors
-    /// </summary>
-    public List<OVRSpatialAnchor> GetCurrentAnchors()
-    {
-        return new List<OVRSpatialAnchor>(currentAnchors);
-    }
-
-    /// <summary>
-    /// Add an anchor created externally
-    /// </summary>
-    public void AddAnchor(OVRSpatialAnchor anchor)
-    {
-        if (anchor != null && !currentAnchors.Contains(anchor))
-        {
-            currentAnchors.Add(anchor);
-            RefreshAnchorList();
-            UpdateAllUI();
-        }
-    }
-
-    #endregion
 }
