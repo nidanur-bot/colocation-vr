@@ -28,11 +28,6 @@ public class AnchorGUIManager : MonoBehaviour
     [SerializeField] private TMP_InputField roomNameInputField;
     [SerializeField] private TextMeshProUGUI roomNameDisplayText;
 
-    [Header("Manual UUID Input")]
-    [SerializeField] private TMP_InputField groupUuidInputField;
-    [SerializeField] private Button loadFromUuidButton;
-    [SerializeField] private Button copyUuidButton;
-
     [Header("Status Display")]
     [SerializeField] private TextMeshProUGUI statusText;
     [SerializeField] private TextMeshProUGUI groupUuidText;
@@ -57,19 +52,21 @@ public class AnchorGUIManager : MonoBehaviour
     private Guid currentGroupUuid;
     private Transform cameraTransform;
     private Action pendingConfirmationAction;
+
     // Room name options
     private readonly string[] roomNameOptions = new string[]
     {
-    "Mars",
-    "Venus",
-    "Jupiter",
-    "Saturn",
-    "Nebula",
-    "Comet",
-    "Custom..."
+        "Mars",
+        "Venus",
+        "Jupiter",
+        "Saturn",
+        "Nebula",
+        "Comet",
+        "Custom..."
     };
 
     private const int CUSTOM_ROOM_INDEX = 6;
+
 #if FUSION2
     private NetworkRunner networkRunner;
 #endif
@@ -141,12 +138,6 @@ public class AnchorGUIManager : MonoBehaviour
         if (clearAnchorsButton != null)
             clearAnchorsButton.onClick.AddListener(OnClearAnchorsClicked);
 
-        if (loadFromUuidButton != null)
-            loadFromUuidButton.onClick.AddListener(OnLoadFromUuidClicked);
-
-        if (copyUuidButton != null)
-            copyUuidButton.onClick.AddListener(OnCopyUuidClicked);
-
         if (confirmYesButton != null)
             confirmYesButton.onClick.AddListener(OnConfirmationYes);
 
@@ -159,14 +150,8 @@ public class AnchorGUIManager : MonoBehaviour
 #if UNITY_ANDROID && !UNITY_EDITOR
         if (roomNameInputField != null)
         {
-            roomNameInputField. shouldHideMobileInput = false;
-            roomNameInputField. shouldHideSoftKeyboard = false;
-        }
-        
-        if (groupUuidInputField != null)
-        {
-            groupUuidInputField.shouldHideMobileInput = false;
-            groupUuidInputField.shouldHideSoftKeyboard = false;
+            roomNameInputField.shouldHideMobileInput = false;
+            roomNameInputField.shouldHideSoftKeyboard = false;
         }
 #endif
     }
@@ -174,18 +159,18 @@ public class AnchorGUIManager : MonoBehaviour
     private void OnHostSessionClicked()
     {
 #if FUSION2
-    string roomName = GetSelectedRoomName();  // ← Use helper method
-    
-    if (string.IsNullOrEmpty(roomName))
-    {
-        LogStatus("Please select or enter a room name!", true);
-        return;
-    }
+        string roomName = GetSelectedRoomName();
+        
+        if (string.IsNullOrEmpty(roomName))
+        {
+            LogStatus("Please select or enter a room name!", true);
+            return;
+        }
 
-    Debug.Log("[AnchorGUI] Hosting room: " + roomName);
-    LogStatus("Creating Photon room: " + roomName);
-    isHost = true;
-    StartPhotonHostSession(roomName);
+        Debug.Log("[AnchorGUI] Hosting room: " + roomName);
+        LogStatus("Creating Photon room: " + roomName);
+        isHost = true;
+        StartPhotonHostSession(roomName);
 #else
         LogStatus("Photon Fusion not available!", true);
 #endif
@@ -194,28 +179,29 @@ public class AnchorGUIManager : MonoBehaviour
     private void OnJoinSessionClicked()
     {
 #if FUSION2
-    string roomName = GetSelectedRoomName();  // ← Use helper method
-    
-    if (string.IsNullOrEmpty(roomName))
-    {
-        LogStatus("Please select or enter a room name!", true);
-        return;
-    }
+        string roomName = GetSelectedRoomName();
+        
+        if (string.IsNullOrEmpty(roomName))
+        {
+            LogStatus("Please select or enter a room name!", true);
+            return;
+        }
 
-    Debug.Log("[AnchorGUI] Joining room: " + roomName);
-    LogStatus("Joining Photon room: " + roomName);
-    isHost = false;
-    StartPhotonClientSession(roomName);
+        Debug.Log("[AnchorGUI] Joining room: " + roomName);
+        LogStatus("Joining Photon room: " + roomName);
+        isHost = false;
+        StartPhotonClientSession(roomName);
 #else
         LogStatus("Photon Fusion not available!", true);
 #endif
     }
+
 #if FUSION2
 
     private async void OnLeaveSessionClicked()
     {
         Debug.Log("[AnchorGUI] Leave Session clicked");
-        LogStatus("Leaving session...");
+        LogStatus("Leaving session.. .");
         
         try
         {
@@ -224,7 +210,6 @@ public class AnchorGUIManager : MonoBehaviour
                 Debug.Log("[AnchorGUI] Shutting down NetworkRunner");
                 await networkRunner. Shutdown();
                 
-                // Optional: Destroy the runner GameObject
                 if (networkRunner.gameObject != null)
                 {
                     Destroy(networkRunner.gameObject);
@@ -238,7 +223,6 @@ public class AnchorGUIManager : MonoBehaviour
                 Debug.Log("[AnchorGUI] No active NetworkRunner to shut down");
             }
             
-            // Reset state
             isHost = false;
             SetSessionState(SessionState.Idle);
             
@@ -248,12 +232,9 @@ public class AnchorGUIManager : MonoBehaviour
         catch (Exception e)
         {
             Debug.LogError("[AnchorGUI] Error leaving session: " + e);
-            LogStatus("Error leaving session: " + e.Message, true);
+            LogStatus("Error leaving session: " + e. Message, true);
         }
     }
-
-#endif
-#if FUSION2
 
     private async void StartPhotonHostSession(string roomName)
     {
@@ -301,7 +282,7 @@ public class AnchorGUIManager : MonoBehaviour
             }
             else
             {
-                Debug. LogError("[AnchorGUI] Host failed: " + result.ShutdownReason);
+                Debug.LogError("[AnchorGUI] Host failed: " + result.ShutdownReason);
                 LogStatus("Failed to host: " + result.ShutdownReason, true);
                 SetSessionState(SessionState.Idle);
             }
@@ -326,19 +307,19 @@ public class AnchorGUIManager : MonoBehaviour
             {
                 Debug.Log("[AnchorGUI] Creating new NetworkRunner");
                 var runnerGO = new GameObject("NetworkRunner");
-                networkRunner = runnerGO. AddComponent<NetworkRunner>();
+                networkRunner = runnerGO.AddComponent<NetworkRunner>();
                 DontDestroyOnLoad(runnerGO);
             }
-            else if (networkRunner. IsRunning)
+            else if (networkRunner.IsRunning)
             {
                 Debug.Log("[AnchorGUI] Shutting down existing session");
                 await networkRunner. Shutdown();
-                await System. Threading.Tasks.Task.Delay(500);
+                await System.Threading.Tasks.Task.Delay(500);
             }
 
             networkRunner.ProvideInput = true;
             
-            Debug. Log("[AnchorGUI] Starting Client for room: " + roomName);
+            Debug.Log("[AnchorGUI] Starting Client for room: " + roomName);
             
             var result = await networkRunner.StartGame(new StartGameArgs
             {
@@ -373,7 +354,7 @@ public class AnchorGUIManager : MonoBehaviour
         {
             Debug.LogError("[AnchorGUI] Join exception: " + e);
             LogStatus("Error: " + e.Message, true);
-            SetSessionState(SessionState. Idle);
+            SetSessionState(SessionState.Idle);
         }
     }
 
@@ -392,7 +373,7 @@ public class AnchorGUIManager : MonoBehaviour
             var saveResult = await anchor.SaveAnchorAsync();
             if (saveResult.Success)
             {
-                Debug.Log("[AnchorGUI] Host anchor saved");
+                Debug. Log("[AnchorGUI] Host anchor saved");
                 
                 currentGroupUuid = Guid.NewGuid();
                 
@@ -623,43 +604,6 @@ public class AnchorGUIManager : MonoBehaviour
         );
     }
 
-    private void OnLoadFromUuidClicked()
-    {
-        if (groupUuidInputField == null) return;
-
-        string uuidString = groupUuidInputField.text.Trim();
-
-        if (string.IsNullOrEmpty(uuidString))
-        {
-            LogStatus("Please enter a UUID", true);
-            return;
-        }
-
-        if (Guid.TryParse(uuidString, out Guid parsedGuid))
-        {
-            currentGroupUuid = parsedGuid;
-            LogStatus("UUID set: " + currentGroupUuid.ToString().Substring(0, 13) + "...");
-            UpdateAllUI();
-            OnLoadAnchorsClicked();
-        }
-        else
-        {
-            LogStatus("Invalid UUID format", true);
-        }
-    }
-
-    private void OnCopyUuidClicked()
-    {
-        if (currentGroupUuid == Guid.Empty)
-        {
-            LogStatus("No UUID to copy!", true);
-            return;
-        }
-
-        GUIUtility.systemCopyBuffer = currentGroupUuid.ToString();
-        LogStatus("UUID copied!");
-    }
-
     private void UpdateAllUI()
     {
         UpdateConnectionState();
@@ -744,9 +688,8 @@ public class AnchorGUIManager : MonoBehaviour
         if (joinSessionButton != null)
             joinSessionButton.interactable = canStartSession;
 
-        // ADD THIS:
         if (leaveSessionButton != null)
-            leaveSessionButton.interactable = inSession;  // Only enabled when in a session
+            leaveSessionButton.interactable = inSession;
 
         if (createAnchorButton != null)
             createAnchorButton.interactable = true;
@@ -762,9 +705,6 @@ public class AnchorGUIManager : MonoBehaviour
 
         if (clearAnchorsButton != null)
             clearAnchorsButton.interactable = currentAnchors.Count > 0;
-
-        if (copyUuidButton != null)
-            copyUuidButton.interactable = currentGroupUuid != Guid.Empty;
     }
 
     private void UpdateStatusIndicator()
@@ -882,20 +822,12 @@ public class AnchorGUIManager : MonoBehaviour
             return;
         }
 
-        // Clear existing options
         roomNameDropdown.ClearOptions();
-
-        // Add our room name options
         roomNameDropdown.AddOptions(new List<string>(roomNameOptions));
-
-        // Set default selection to first option (Mars)
         roomNameDropdown.value = 0;
         roomNameDropdown.RefreshShownValue();
-
-        // Listen for dropdown changes
         roomNameDropdown.onValueChanged.AddListener(OnRoomNameDropdownChanged);
 
-        // Make sure input field is hidden initially
         if (roomNameInputField != null)
         {
             roomNameInputField.gameObject.SetActive(false);
@@ -903,24 +835,24 @@ public class AnchorGUIManager : MonoBehaviour
 
         Debug.Log("[AnchorGUI] Room dropdown initialized with " + roomNameOptions.Length + " options");
     }
+
     private void OnRoomNameDropdownChanged(int index)
     {
         if (roomNameInputField == null) return;
 
-        // Show input field only when "Custom..." is selected
         if (index == CUSTOM_ROOM_INDEX)
         {
             roomNameInputField.gameObject.SetActive(true);
-            roomNameInputField.text = "";  // Clear any old text
+            roomNameInputField.text = "";
             Debug.Log("[AnchorGUI] Custom room name selected - input field shown");
         }
         else
         {
-            // Hide input field for preset selections
             roomNameInputField.gameObject.SetActive(false);
             Debug.Log("[AnchorGUI] Preset room selected: " + roomNameOptions[index]);
         }
     }
+
     private string GetSelectedRoomName()
     {
         if (roomNameDropdown == null)
@@ -931,7 +863,6 @@ public class AnchorGUIManager : MonoBehaviour
 
         int selectedIndex = roomNameDropdown.value;
 
-        // If "Custom..." is selected, get name from input field
         if (selectedIndex == CUSTOM_ROOM_INDEX)
         {
             if (roomNameInputField != null)
@@ -946,7 +877,6 @@ public class AnchorGUIManager : MonoBehaviour
                 return "";
             }
         }
-        // Otherwise, use preset from dropdown
         else if (selectedIndex >= 0 && selectedIndex < roomNameOptions.Length)
         {
             string presetName = roomNameOptions[selectedIndex];
