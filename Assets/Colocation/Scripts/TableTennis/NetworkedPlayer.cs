@@ -269,13 +269,25 @@ public class NetworkedPlayer : NetworkBehaviour
         var collider = sphere.GetComponent<Collider>();
         if (collider != null) Destroy(collider);
         
-        // Set color
+        // Set color - try URP shader first, fallback to Standard
         var renderer = sphere.GetComponent<Renderer>();
         if (renderer != null)
         {
-            var mat = new Material(Shader.Find("Universal Render Pipeline/Lit"));
-            mat.color = color;
-            renderer.material = mat;
+            Shader shader = Shader.Find("Universal Render Pipeline/Lit");
+            if (shader == null) shader = Shader.Find("Standard");
+            if (shader == null) shader = Shader.Find("Diffuse");
+            
+            if (shader != null)
+            {
+                var mat = new Material(shader);
+                mat.color = color;
+                renderer.material = mat;
+            }
+            else
+            {
+                // Just set color on existing material
+                renderer.material.color = color;
+            }
         }
         
         return sphere;
@@ -324,13 +336,24 @@ public class NetworkedPlayer : NetworkBehaviour
         var bgCollider = background.GetComponent<Collider>();
         if (bgCollider != null) Destroy(bgCollider);
         
-        // Set background color
+        // Set background color - try URP shader first, fallback to Standard
         var bgRenderer = background.GetComponent<Renderer>();
         if (bgRenderer != null)
         {
-            var mat = new Material(Shader.Find("Universal Render Pipeline/Unlit"));
-            mat.color = new Color(0, 0, 0, 0.7f); // Semi-transparent black
-            bgRenderer.material = mat;
+            Shader shader = Shader.Find("Universal Render Pipeline/Unlit");
+            if (shader == null) shader = Shader.Find("Unlit/Color");
+            if (shader == null) shader = Shader.Find("Standard");
+            
+            if (shader != null)
+            {
+                var mat = new Material(shader);
+                mat.color = new Color(0, 0, 0, 0.7f); // Semi-transparent black
+                bgRenderer.material = mat;
+            }
+            else
+            {
+                bgRenderer.material.color = new Color(0, 0, 0, 0.7f);
+            }
         }
         
         Debug.Log($"[NetworkedPlayer] Created name tag: {PlayerName}");
