@@ -384,14 +384,6 @@ public class ControllerRacket : MonoBehaviour
             Debug.Log($"[RACKET_DEBUG] LineRenderer {lr.name}: {(hide ? "DISABLED" : "ENABLED")}");
         }
         
-        // Disable OVRInputModule raycast
-        var inputModules = FindObjectsOfType<OVRInputModule>(true);
-        foreach (var im in inputModules)
-        {
-            im.enabled = !hide;
-            Debug.Log($"[RACKET_DEBUG] OVRInputModule: {(hide ? "DISABLED" : "ENABLED")}");
-        }
-        
         // Try to find UIRaycastr or similar pointer components by name
         foreach (Transform child in cameraRig.GetComponentsInChildren<Transform>(true))
         {
