@@ -272,6 +272,11 @@ public class AnchorAutoGUIManager : ColocationManager
                     currentAnchors.Add(spatialAnchor);
                     
                     _localizedAnchor = spatialAnchor; // Store for relative positioning
+                    
+                    // IMPORTANT: Preserve anchor immediately for scene transitions
+                    DontDestroyOnLoad(anchorGameObject);
+                    Debug.Log($"[AnchorGUI] Client anchor preserved with DontDestroyOnLoad: {spatialAnchor.Uuid}");
+                    
                     alignmentManager.AlignUserToAnchor(spatialAnchor);
                     
                     UpdateAllUI();
@@ -730,6 +735,11 @@ public class AnchorAutoGUIManager : ColocationManager
             Log($"Anchor created: {spatialAnchor.Uuid}");
             currentAnchors.Add(spatialAnchor); // Track it locally for UI
             _localizedAnchor = spatialAnchor; // Store as the shared anchor for relative positioning
+            
+            // IMPORTANT: Preserve anchor immediately for scene transitions
+            DontDestroyOnLoad(anchorGO);
+            Debug.Log($"[AnchorGUI] Host anchor preserved with DontDestroyOnLoad: {spatialAnchor.Uuid}");
+            
             return spatialAnchor;
         }
         catch (Exception e)

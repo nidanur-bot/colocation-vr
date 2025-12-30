@@ -136,6 +136,11 @@ public class ColocationManager : NetworkBehaviour
             
             // Host also needs to align to the anchor
             _localizedAnchor = anchor;
+            
+            // IMPORTANT: Preserve anchor immediately for scene transitions
+            DontDestroyOnLoad(anchor.gameObject);
+            Log($"Colocation: Host anchor preserved with DontDestroyOnLoad: {anchor.Uuid}");
+            
             if (alignmentManager != null)
             {
                 alignmentManager.AlignUserToAnchor(anchor);
@@ -202,6 +207,11 @@ public class ColocationManager : NetworkBehaviour
                     unboundAnchor.BindTo(spatialAnchor);
 
                     _localizedAnchor = spatialAnchor; // Store for relative positioning
+                    
+                    // IMPORTANT: Preserve anchor immediately for scene transitions
+                    DontDestroyOnLoad(anchorGameObject);
+                    Log($"Colocation: Anchor preserved with DontDestroyOnLoad: {spatialAnchor.Uuid}");
+                    
                     alignmentManager.AlignUserToAnchor(spatialAnchor);
                     return;
                 }
