@@ -189,6 +189,7 @@ public class ControllerRacket : MonoBehaviour
     
     private void CreateRacketOnController()
     {
+        Debug.Log($"[RACKET_DEBUG] CreateRacketOnController - Prefab: {racketPrefab?.name}, LeftCtrl: {leftController != null}, RightCtrl: {rightController != null}");
         Debug.Log($"[RACKET_DEBUG] Prefab original rotation: {racketPrefab.transform.eulerAngles}");
         
         // Create left controller racket
@@ -206,10 +207,14 @@ public class ControllerRacket : MonoBehaviour
             leftRacket.transform.localScale = Vector3.one * racketScale;
             leftRacket.SetActive(false); // Hidden until activated
             
-            Debug.Log($"[RACKET_DEBUG] Left racket created with rotation: {leftRacket.transform.localEulerAngles}");
+            Debug.Log($"[RACKET_DEBUG] LEFT racket CREATED with rotation: {leftRacket.transform.localEulerAngles}, parent: {leftController.name}");
             
             // Remove any physics/grab components
             CleanupRacketComponents(leftRacket);
+        }
+        else
+        {
+            Debug.LogWarning($"[RACKET_DEBUG] LEFT racket NOT created - leftController: {leftController != null}, leftRacket already exists: {leftRacket != null}");
         }
         
         // Create right controller racket
@@ -227,13 +232,17 @@ public class ControllerRacket : MonoBehaviour
             rightRacket.transform.localScale = Vector3.one * racketScale;
             rightRacket.SetActive(false); // Hidden until activated
             
-            Debug.Log($"[RACKET_DEBUG] Right racket created with rotation: {rightRacket.transform.localEulerAngles}");
+            Debug.Log($"[RACKET_DEBUG] RIGHT racket CREATED with rotation: {rightRacket.transform.localEulerAngles}, parent: {rightController.name}");
             
             // Remove any physics/grab components
             CleanupRacketComponents(rightRacket);
         }
+        else
+        {
+            Debug.LogWarning($"[RACKET_DEBUG] RIGHT racket NOT created - rightController: {rightController != null}, rightRacket already exists: {rightRacket != null}");
+        }
         
-        Debug.Log("[ControllerRacket] Created racket visuals on controllers (press B/Y to show)");
+        Debug.Log($"[ControllerRacket] Racket creation done - Left: {leftRacket != null}, Right: {rightRacket != null}");
     }
     
     private void CleanupRacketComponents(GameObject racket)
@@ -364,6 +373,7 @@ public class ControllerRacket : MonoBehaviour
         foreach (var rayHelper in rayHelpers)
         {
             rayHelper.enabled = !hide;
+            Debug.Log($"[RACKET_DEBUG] OVRRayHelper {rayHelper.name}: {(hide ? "DISABLED" : "ENABLED")}");
         }
         
         // Try to find LineRenderer components (commonly used for rays)
@@ -371,25 +381,53 @@ public class ControllerRacket : MonoBehaviour
         foreach (var lr in lineRenderers)
         {
             lr.enabled = !hide;
+            Debug.Log($"[RACKET_DEBUG] LineRenderer {lr.name}: {(hide ? "DISABLED" : "ENABLED")}");
+        }
+        
+        // Disable OVRInputModule raycast
+        var inputModules = FindObjectsOfType<OVRInputModule>(true);
+        foreach (var im in inputModules)
+        {
+            im.enabled = !hide;
+            Debug.Log($"[RACKET_DEBUG] OVRInputModule: {(hide ? "DISABLED" : "ENABLED")}");
         }
         
         // Try to find UIRaycastr or similar pointer components by name
         foreach (Transform child in cameraRig.GetComponentsInChildren<Transform>(true))
         {
             string nameLower = child.name.ToLower();
-            if (nameLower.Contains("ray") || nameLower.Contains("pointer") || nameLower.Contains("laser"))
+            if (nameLower.Contains("ray") || nameLower.Contains("pointer") || nameLower.Contains("laser") || 
+                nameLower.Contains("cursor") || nameLower.Contains("line"))
             {
-                var childRenderers = child.GetComponentsInChildren<Renderer>(true);
-                foreach (var r in childRenderers)
+                // Disable the entire GameObject
+                if (hide)
                 {
-                    r.enabled = !hide;
+                    child.gameObject.SetActive(false);
+                    Debug.Log($"[RACKET_DEBUG] Disabled ray object: {child.name}");
                 }
+                else
+                {
+                    child.gameObject.SetActive(true);
+                }
+            }
+        }
+        
+        // Also search in the entire scene for ray-related objects
+        var allObjects = FindObjectsOfType<GameObject>(true);
+        foreach (var obj in allObjects)
+        {
+            string nameLower = obj.name.ToLower();
+            if ((nameLower.Contains("laserpointer") || nameLower.Contains("uiray") || nameLower.Contains("handray")) 
+                && !nameLower.Contains("racket"))
+            {
+                obj.SetActive(!hide);
+                Debug.Log($"[RACKET_DEBUG] Scene ray object {obj.name}: {(hide ? "DISABLED" : "ENABLED")}");
             }
         }
         
         if (hide)
         {
-            Debug.Log("[RACKET_DEBUG] Disabled ray/pointer visuals");
+            Debug.Log("[RACKET_DEBUG] Attempted to disable all ray/pointer visuals");
         }
     }
     
