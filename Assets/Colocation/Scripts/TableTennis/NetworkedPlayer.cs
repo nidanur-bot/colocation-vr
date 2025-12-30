@@ -312,51 +312,40 @@ public class NetworkedPlayer : NetworkBehaviour
     
     private void CreateNameTag()
     {
-        // Create name tag container
-        nameTagObject = new GameObject("PlayerNameTag");
-        
-        // Add TextMeshPro component
-        nameTagText = nameTagObject.AddComponent<TextMeshPro>();
-        nameTagText.text = PlayerName.ToString();
-        nameTagText.fontSize = 36;
-        nameTagText.alignment = TextAlignmentOptions.Center;
-        nameTagText.color = Color.white;
-        
-        // Set scale for world space
-        nameTagObject.transform.localScale = Vector3.one * nameTagScale;
-        
-        // Add background panel
-        var background = GameObject.CreatePrimitive(PrimitiveType.Quad);
-        background.name = "NameTagBackground";
-        background.transform.SetParent(nameTagObject.transform);
-        background.transform.localPosition = new Vector3(0, 0, 0.01f); // Slightly behind text
-        background.transform.localScale = new Vector3(200f, 50f, 1f); // Adjust size
-        
-        // Remove collider
-        var bgCollider = background.GetComponent<Collider>();
-        if (bgCollider != null) Destroy(bgCollider);
-        
-        // Set background color - try URP shader first, fallback to Standard
-        var bgRenderer = background.GetComponent<Renderer>();
-        if (bgRenderer != null)
+        try
         {
-            Shader shader = Shader.Find("Universal Render Pipeline/Unlit");
-            if (shader == null) shader = Shader.Find("Unlit/Color");
-            if (shader == null) shader = Shader.Find("Standard");
+            // Create name tag container
+            nameTagObject = new GameObject("PlayerNameTag");
             
-            if (shader != null)
+            // Add TextMeshPro component - this may fail if TMP essentials not imported
+            nameTagText = nameTagObject.AddComponent<TextMeshPro>();
+            if (nameTagText == null)
             {
-                var mat = new Material(shader);
-                mat.color = new Color(0, 0, 0, 0.7f); // Semi-transparent black
-                bgRenderer.material = mat;
+                Debug.LogWarning("[NetworkedPlayer] Failed to add TextMeshPro component - TMP may not be set up");
+                Destroy(nameTagObject);
+                nameTagObject = null;
+                return;
             }
-            else
+            
+            nameTagText.text = PlayerName.ToString();
+            nameTagText.fontSize = 36;
+            nameTagText.alignment = TextAlignmentOptions.Center;
+            nameTagText.color = Color.white;
+            
+            // Set scale for world space
+            nameTagObject.transform.localScale = Vector3.one * nameTagScale;
+            
+            Debug.Log($"[NetworkedPlayer] Created name tag: {PlayerName}");
+        }
+        catch (System.Exception e)
+        {
+            Debug.LogError($"[NetworkedPlayer] Error creating name tag: {e.Message}");
+            if (nameTagObject != null)
             {
-                bgRenderer.material.color = new Color(0, 0, 0, 0.7f);
+                Destroy(nameTagObject);
+                nameTagObject = null;
             }
         }
-        
-        Debug.Log($"[NetworkedPlayer] Created name tag: {PlayerName}");
     }
     
     private void OnPlayerNameChanged()
