@@ -24,7 +24,8 @@ public class TableTennisManager : NetworkBehaviour
     [SerializeField] private bool showAdjustmentInstructions = true;
     
     // Networked table position/rotation for syncing across players
-    [Networked] private Vector3 NetworkedTablePosition { get; set; }
+    // These are ANCHOR-RELATIVE so both users see table at same physical location
+    [Networked] private Vector3 NetworkedAnchorRelativeTablePos { get; set; }
     [Networked] private float NetworkedTableYRotation { get; set; }
     [Networked] private float NetworkedFloorOffset { get; set; } // Shared floor level adjustment
     
@@ -83,6 +84,7 @@ public class TableTennisManager : NetworkBehaviour
     
     /// <summary>
     /// Apply the networked table position/rotation to the local table object
+    /// Converts anchor-relative position to world position for this user
     /// </summary>
     private void ApplyNetworkedTableState()
     {
@@ -94,23 +96,26 @@ public class TableTennisManager : NetworkBehaviour
             if (tableRoot == null) return;
         }
         
-        // Apply networked position (Y includes floor offset)
-        Vector3 newPos = new Vector3(
-            NetworkedTablePosition.x,
-            NetworkedTablePosition.y + NetworkedFloorOffset,
-            NetworkedTablePosition.z
-        );
-        
-        // Only log if position changed significantly
-        if (Vector3.Distance(tableRoot.transform.position, newPos) > 0.001f)
+        if (sharedAnchor == null)
         {
-            Debug.Log($"[TableTennisManager] Applying networked table pos: {newPos}, rot Y: {NetworkedTableYRotation}");
+            // Can't position table without anchor
+            return;
         }
         
-        tableRoot.transform.position = newPos;
+        // Convert anchor-relative position to world position
+        Vector3 worldPos = sharedAnchor.TransformPoint(NetworkedAnchorRelativeTablePos);
+        worldPos.y += NetworkedFloorOffset; // Apply floor offset
         
-        // Apply networked rotation
-        tableRoot.transform.rotation = Quaternion.Euler(tableXRotationOffset, NetworkedTableYRotation, 0);
+        // Only log if position changed significantly
+        if (Vector3.Distance(tableRoot.transform.position, worldPos) > 0.001f)
+        {
+            Debug.Log($"[TableTennisManager] Applying table: anchorRel={NetworkedAnchorRelativeTablePos}, world={worldPos}, rot Y={NetworkedTableYRotation}");
+        }
+        
+        tableRoot.transform.position = worldPos;
+        
+        // Apply networked rotation (relative to anchor rotation)
+        tableRoot.transform.rotation = sharedAnchor.rotation * Quaternion.Euler(tableXRotationOffset, NetworkedTableYRotation, 0);
     }
     
     /// <summary>
@@ -165,12 +170,12 @@ public class TableTennisManager : NetworkBehaviour
         Vector2 leftStick = OVRInput.Get(OVRInput.Axis2D.PrimaryThumbstick, OVRInput.Controller.LTouch);
         Vector2 rightStick = OVRInput.Get(OVRInput.Axis2D.PrimaryThumbstick, OVRInput.Controller.RTouch);
         
-        // Move table with left thumbstick (X/Z movement)
+        // Move table with left thumbstick (X/Z movement in anchor-relative space)
         if (leftStick.magnitude > 0.1f)
         {
             Vector3 movement = new Vector3(leftStick.x, 0, leftStick.y) * moveSpeed * Time.deltaTime;
             movement = Quaternion.Euler(0, NetworkedTableYRotation, 0) * movement;
-            NetworkedTablePosition += movement;
+            NetworkedAnchorRelativeTablePos += movement;
         }
         
         // Rotate table with right thumbstick X axis
@@ -224,7 +229,7 @@ public class TableTennisManager : NetworkBehaviour
     {
         Debug.Log($"[TableTennisManager] HOST: Received move RPC: {movement}");
         movement = Quaternion.Euler(0, NetworkedTableYRotation, 0) * movement;
-        NetworkedTablePosition += movement;
+        NetworkedAnchorRelativeTablePos += movement;
     }
     
     [Rpc(RpcSources.All, RpcTargets.StateAuthority)]
@@ -285,19 +290,18 @@ public class TableTennisManager : NetworkBehaviour
         
         if (tableRoot != null)
         {
-            // Host initializes networked values based on anchor position
+            // Host initializes networked values (anchor-relative)
             if (Object.HasStateAuthority)
             {
-                // Calculate position: X/Z from anchor, Y = 0 (floor level)
+                // Table position relative to anchor with configured offset
                 Vector3 rotatedOffset = Quaternion.Euler(0, tableYRotationOffset, 0) * tablePositionOffset;
-                Vector3 anchorPos = sharedAnchor.position + rotatedOffset;
-                Vector3 tablePos = new Vector3(anchorPos.x, 0f, anchorPos.z);
                 
-                NetworkedTablePosition = tablePos;
+                // Store anchor-relative position (not world position)
+                NetworkedAnchorRelativeTablePos = rotatedOffset;
                 NetworkedTableYRotation = tableYRotationOffset;
                 NetworkedFloorOffset = 0f;
                 
-                Debug.Log($"[TableTennisManager] HOST: Table placed at {tablePos}, rotation Y={tableYRotationOffset}");
+                Debug.Log($"[TableTennisManager] HOST: Table placed at anchor-relative pos={rotatedOffset}, rotation Y={tableYRotationOffset}");
             }
             else
             {
@@ -308,7 +312,7 @@ public class TableTennisManager : NetworkBehaviour
             // Apply initial position (will be overridden by networked values)
             ApplyNetworkedTableState();
             
-            Debug.Log($"[TableTennisManager] Table at {tableRoot.transform.position}");
+            Debug.Log($"[TableTennisManager] Table at world pos: {tableRoot.transform.position}");
         }
         else
         {
