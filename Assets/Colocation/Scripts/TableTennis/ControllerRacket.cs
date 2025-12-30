@@ -34,6 +34,7 @@ public class ControllerRacket : MonoBehaviour
     private bool rightActive = false;
     private bool leftWasPressed = false;
     private bool rightWasPressed = false;
+    private bool racketsCreated = false;
     
     private void Start()
     {
@@ -47,15 +48,26 @@ public class ControllerRacket : MonoBehaviour
         }
         
         // Create rackets attached to controllers (hidden initially)
-        CreateControllerRackets();
+        if (racketPrefab != null)
+        {
+            CreateControllerRackets();
+            racketsCreated = true;
+        }
+        else
+        {
+            Debug.LogWarning("[ControllerRacket] Racket prefab not found on Start - will retry in Update");
+        }
         
-        Debug.Log("[ControllerRacket] Initialized - press grip to show racket on controller");
+        Debug.Log("[ControllerRacket] Initialized - press B/Y to show racket on controller");
     }
     
     private void FindRacketTemplate()
     {
+        Debug.Log("[ControllerRacket] Looking for racket template...");
+        
         // Try to find by tag
         var taggedRackets = GameObject.FindGameObjectsWithTag("Racket");
+        Debug.Log($"[ControllerRacket] Found {taggedRackets.Length} objects with 'Racket' tag");
         if (taggedRackets.Length > 0)
         {
             racketPrefab = taggedRackets[0];
@@ -64,7 +76,8 @@ public class ControllerRacket : MonoBehaviour
         }
         
         // Try to find by name under pingpong parent
-        var pingPongParent = GameObject.Find("pingpong") ?? GameObject.Find("PingPong");
+        var pingPongParent = GameObject.Find("pingpong") ?? GameObject.Find("PingPong") ?? GameObject.Find("PingPongTable");
+        Debug.Log($"[ControllerRacket] PingPong parent found: {pingPongParent != null}");
         if (pingPongParent != null)
         {
             foreach (Transform child in pingPongParent.GetComponentsInChildren<Transform>())
@@ -77,6 +90,8 @@ public class ControllerRacket : MonoBehaviour
                 }
             }
         }
+        
+        Debug.LogWarning("[ControllerRacket] Could not find racket template in scene! Make sure rackets have 'Racket' tag or are under a pingpong parent.");
         
         Debug.LogWarning("[ControllerRacket] Could not find racket template in scene!");
     }
@@ -238,6 +253,22 @@ public class ControllerRacket : MonoBehaviour
             return;
         }
         
+        // Retry creating rackets if not done yet (in case racket prefab wasn't found on Start)
+        if (!racketsCreated)
+        {
+            if (racketPrefab == null)
+            {
+                FindRacketTemplate();
+            }
+            if (racketPrefab != null)
+            {
+                CreateControllerRackets();
+                racketsCreated = true;
+                Debug.Log("[ControllerRacket] Rackets created on retry");
+            }
+            return;
+        }
+        
         // Check for toggle on left controller (Y button)
         bool leftPressed = OVRInput.Get(leftActivateButton, OVRInput.Controller.LTouch);
         if (leftPressed && !leftWasPressed)
@@ -353,4 +384,14 @@ public class ControllerRacket : MonoBehaviour
         if (controller == OVRInput.Controller.RTouch) return rightRacket;
         return null;
     }
+    
+    /// <summary>
+    /// Check if left racket is active (for network sync)
+    /// </summary>
+    public bool IsLeftRacketActive() => leftActive;
+    
+    /// <summary>
+    /// Check if right racket is active (for network sync)
+    /// </summary>
+    public bool IsRightRacketActive() => rightActive;
 }

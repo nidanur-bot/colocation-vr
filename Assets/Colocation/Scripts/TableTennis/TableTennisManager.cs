@@ -10,6 +10,7 @@ public class TableTennisManager : NetworkBehaviour
 {
     [Header("Prefabs")]
     [SerializeField] private NetworkPrefabRef ballPrefab;
+    [SerializeField] private NetworkPrefabRef playerPrefab; // Networked player representation
     [SerializeField] private GameObject racketPrefab; // Local prefab, not networked
     
     [Header("Table Placement (relative to anchor)")]
@@ -43,8 +44,14 @@ public class TableTennisManager : NetworkBehaviour
     
     // References
     private NetworkedBall spawnedBall;
+    private NetworkObject spawnedPlayer; // Local player's networked representation
     private Transform sharedAnchor;
     private GameObject[] localRackets = new GameObject[2];
+    
+    /// <summary>
+    /// Get the shared anchor transform for other scripts to reference
+    /// </summary>
+    public Transform GetSharedAnchor() => sharedAnchor;
     
     public override void Spawned()
     {
@@ -79,24 +86,31 @@ public class TableTennisManager : NetworkBehaviour
     /// </summary>
     private void ApplyNetworkedTableState()
     {
-        if (tableRoot == null) return;
+        if (tableRoot == null)
+        {
+            // Try to find table if not set
+            tableRoot = GameObject.Find("PingPongTable") ?? GameObject.Find("pingpongtable") 
+                        ?? GameObject.Find("pingpong") ?? GameObject.Find("PingPong") ?? GameObject.Find("TableTennis");
+            if (tableRoot == null) return;
+        }
         
         // Apply networked position (Y includes floor offset)
-        tableRoot.transform.position = new Vector3(
+        Vector3 newPos = new Vector3(
             NetworkedTablePosition.x,
             NetworkedTablePosition.y + NetworkedFloorOffset,
             NetworkedTablePosition.z
         );
         
+        // Only log if position changed significantly
+        if (Vector3.Distance(tableRoot.transform.position, newPos) > 0.001f)
+        {
+            Debug.Log($"[TableTennisManager] Applying networked table pos: {newPos}, rot Y: {NetworkedTableYRotation}");
+        }
+        
+        tableRoot.transform.position = newPos;
+        
         // Apply networked rotation
         tableRoot.transform.rotation = Quaternion.Euler(tableXRotationOffset, NetworkedTableYRotation, 0);
-        
-        // Apply floor offset to camera rig so player sees correct floor level
-        if (cameraRig != null && NetworkedFloorOffset != 0)
-        {
-            // Store the original floor offset from when we joined
-            // This is a simplified approach - both players adjust together
-        }
     }
     
     /// <summary>
@@ -186,18 +200,21 @@ public class TableTennisManager : NetworkBehaviour
         if (leftStick.magnitude > 0.1f)
         {
             Vector3 movement = new Vector3(leftStick.x, 0, leftStick.y) * moveSpeed * Time.deltaTime;
+            Debug.Log($"[TableTennisManager] CLIENT: Sending move RPC: {movement}");
             RPC_RequestTableMove(movement);
         }
         
         if (Mathf.Abs(rightStick.x) > 0.1f)
         {
             float rotation = rightStick.x * rotateSpeed * Time.deltaTime;
+            Debug.Log($"[TableTennisManager] CLIENT: Sending rotate RPC: {rotation}");
             RPC_RequestTableRotate(rotation);
         }
         
         if (Mathf.Abs(rightStick.y) > 0.1f)
         {
             float verticalMove = rightStick.y * moveSpeed * Time.deltaTime;
+            Debug.Log($"[TableTennisManager] CLIENT: Sending floor adjust RPC: {verticalMove}");
             RPC_RequestFloorAdjust(verticalMove);
         }
     }
@@ -205,6 +222,7 @@ public class TableTennisManager : NetworkBehaviour
     [Rpc(RpcSources.All, RpcTargets.StateAuthority)]
     private void RPC_RequestTableMove(Vector3 movement)
     {
+        Debug.Log($"[TableTennisManager] HOST: Received move RPC: {movement}");
         movement = Quaternion.Euler(0, NetworkedTableYRotation, 0) * movement;
         NetworkedTablePosition += movement;
     }
@@ -212,12 +230,14 @@ public class TableTennisManager : NetworkBehaviour
     [Rpc(RpcSources.All, RpcTargets.StateAuthority)]
     private void RPC_RequestTableRotate(float rotation)
     {
+        Debug.Log($"[TableTennisManager] HOST: Received rotate RPC: {rotation}");
         NetworkedTableYRotation += rotation;
     }
     
     [Rpc(RpcSources.All, RpcTargets.StateAuthority)]
     private void RPC_RequestFloorAdjust(float verticalMove)
     {
+        Debug.Log($"[TableTennisManager] HOST: Received floor adjust RPC: {verticalMove}");
         NetworkedFloorOffset += verticalMove;
     }
     
@@ -231,6 +251,9 @@ public class TableTennisManager : NetworkBehaviour
         
         // Setup controller-based rackets (replaces old grab system)
         SetupControllerRackets();
+        
+        // Spawn networked player representation so other users can see us
+        SpawnPlayer();
         
         // Host spawns the ball
         if (Object.HasStateAuthority)
@@ -262,24 +285,30 @@ public class TableTennisManager : NetworkBehaviour
         
         if (tableRoot != null)
         {
-            // Calculate position: X/Z from anchor, Y = 0 (floor level)
-            Vector3 rotatedOffset = Quaternion.Euler(0, tableYRotationOffset, 0) * tablePositionOffset;
-            Vector3 anchorPos = sharedAnchor.position + rotatedOffset;
-            Vector3 tablePos = new Vector3(anchorPos.x, 0f, anchorPos.z);
-            
-            // Host initializes networked values
+            // Host initializes networked values based on anchor position
             if (Object.HasStateAuthority)
             {
+                // Calculate position: X/Z from anchor, Y = 0 (floor level)
+                Vector3 rotatedOffset = Quaternion.Euler(0, tableYRotationOffset, 0) * tablePositionOffset;
+                Vector3 anchorPos = sharedAnchor.position + rotatedOffset;
+                Vector3 tablePos = new Vector3(anchorPos.x, 0f, anchorPos.z);
+                
                 NetworkedTablePosition = tablePos;
                 NetworkedTableYRotation = tableYRotationOffset;
                 NetworkedFloorOffset = 0f;
+                
+                Debug.Log($"[TableTennisManager] HOST: Table placed at {tablePos}, rotation Y={tableYRotationOffset}");
+            }
+            else
+            {
+                // Client: just log, will receive networked values via FixedUpdateNetwork
+                Debug.Log($"[TableTennisManager] CLIENT: Waiting for networked table position from host...");
             }
             
-            // Apply initial position
-            tableRoot.transform.position = tablePos;
-            tableRoot.transform.rotation = Quaternion.Euler(tableXRotationOffset, tableYRotationOffset, 0);
+            // Apply initial position (will be overridden by networked values)
+            ApplyNetworkedTableState();
             
-            Debug.Log($"[TableTennisManager] Table placed at {tableRoot.transform.position}");
+            Debug.Log($"[TableTennisManager] Table at {tableRoot.transform.position}");
         }
         else
         {
@@ -500,6 +529,42 @@ public class TableTennisManager : NetworkBehaviour
         {
             spawnedBall = ballObj.GetComponent<NetworkedBall>();
             Debug.Log($"[TableTennisManager] Spawned networked ball at {spawnPosition}");
+        }
+    }
+    
+    /// <summary>
+    /// Spawn networked player representation so other users can see this player
+    /// </summary>
+    private void SpawnPlayer()
+    {
+        if (playerPrefab == default)
+        {
+            Debug.LogWarning("[TableTennisManager] Player prefab not assigned! Other users won't see this player's representation.");
+            return;
+        }
+        
+        // Each player spawns their own NetworkedPlayer with input authority
+        Vector3 spawnPosition = Vector3.zero;
+        if (sharedAnchor != null)
+        {
+            spawnPosition = sharedAnchor.position;
+        }
+        
+        // Spawn with input authority so this client controls it
+        spawnedPlayer = Runner.Spawn(
+            playerPrefab,
+            spawnPosition,
+            Quaternion.identity,
+            Runner.LocalPlayer, // Give input authority to local player
+            onBeforeSpawned: (runner, obj) =>
+            {
+                Debug.Log($"[TableTennisManager] NetworkedPlayer spawned for local player");
+            }
+        );
+        
+        if (spawnedPlayer != null)
+        {
+            Debug.Log($"[TableTennisManager] Spawned networked player representation");
         }
     }
     

@@ -19236,6 +19236,8 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   ballPrefab:
     RawGuidValue: 19202626625a64c80a63f3c9191b8d53
+  playerPrefab:
+    RawGuidValue: 7adf49969ad404d77ae51912bae59150
   racketPrefab: {fileID: 8733148417151412701, guid: f49f097561511dd499970e7f53740fdd,
     type: 3}
   tablePositionOffset: {x: 0, y: 0, z: 0}
