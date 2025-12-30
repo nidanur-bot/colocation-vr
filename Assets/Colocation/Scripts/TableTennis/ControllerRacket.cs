@@ -273,7 +273,21 @@ public class ControllerRacket : MonoBehaviour
         bool leftPressed = OVRInput.Get(leftActivateButton, OVRInput.Controller.LTouch);
         if (leftPressed && !leftWasPressed)
         {
+            // If left is already active, deactivate it
+            // If left is not active, activate it and deactivate right
             leftActive = !leftActive;
+            
+            if (leftActive && rightActive)
+            {
+                // Deactivate right racket when activating left
+                rightActive = false;
+                if (rightRacket != null)
+                {
+                    rightRacket.SetActive(false);
+                    SetControllerVisualActive(rightControllerVisual, true);
+                }
+            }
+            
             if (leftRacket != null)
             {
                 leftRacket.SetActive(leftActive);
@@ -288,7 +302,21 @@ public class ControllerRacket : MonoBehaviour
         bool rightPressed = OVRInput.Get(rightActivateButton, OVRInput.Controller.RTouch);
         if (rightPressed && !rightWasPressed)
         {
+            // If right is already active, deactivate it
+            // If right is not active, activate it and deactivate left
             rightActive = !rightActive;
+            
+            if (rightActive && leftActive)
+            {
+                // Deactivate left racket when activating right
+                leftActive = false;
+                if (leftRacket != null)
+                {
+                    leftRacket.SetActive(false);
+                    SetControllerVisualActive(leftControllerVisual, true);
+                }
+            }
+            
             if (rightRacket != null)
             {
                 rightRacket.SetActive(rightActive);

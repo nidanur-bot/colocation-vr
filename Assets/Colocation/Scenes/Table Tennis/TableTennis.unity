@@ -11758,7 +11758,8 @@ PrefabInstance:
       propertyPath: m_TagString
       value: Racket
       objectReference: {fileID: 0}
-    m_RemovedComponents: []
+    m_RemovedComponents:
+    - {fileID: -4331907396841239091, guid: f49f097561511dd499970e7f53740fdd, type: 3}
     m_RemovedGameObjects: []
     m_AddedGameObjects: []
     m_AddedComponents: []
@@ -44212,7 +44213,8 @@ PrefabInstance:
       propertyPath: m_TagString
       value: Racket
       objectReference: {fileID: 0}
-    m_RemovedComponents: []
+    m_RemovedComponents:
+    - {fileID: -4331907396841239091, guid: f49f097561511dd499970e7f53740fdd, type: 3}
     m_RemovedGameObjects: []
     m_AddedGameObjects: []
     m_AddedComponents: []

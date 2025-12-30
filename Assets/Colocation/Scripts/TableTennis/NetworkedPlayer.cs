@@ -76,6 +76,14 @@ public class NetworkedPlayer : NetworkBehaviour
         {
             // This is the local player - find OVR camera rig
             Debug.Log("[NetworkedPlayer] This is LOCAL player - will sync positions to network");
+            
+            // Request state authority so we can modify networked properties
+            if (!Object.HasStateAuthority)
+            {
+                Debug.Log("[NetworkedPlayer] Requesting StateAuthority for local player...");
+                Object.RequestStateAuthority();
+            }
+            
             StartCoroutine(InitializeLocalPlayer());
         }
         else
@@ -100,8 +108,19 @@ public class NetworkedPlayer : NetworkBehaviour
         localLeftHand = cameraRig.leftControllerAnchor;
         localRightHand = cameraRig.rightControllerAnchor;
         
+        Debug.Log($"[NetworkedPlayer] Found camera rig - Head: {localHead != null}, LeftHand: {localLeftHand != null}, RightHand: {localRightHand != null}");
+        
         // Wait for shared anchor
         yield return StartCoroutine(WaitForAnchor());
+        
+        if (sharedAnchor == null)
+        {
+            Debug.LogError("[NetworkedPlayer] LOCAL PLAYER: Failed to find shared anchor! Positions will NOT sync!");
+        }
+        else
+        {
+            Debug.Log($"[NetworkedPlayer] LOCAL PLAYER: Found anchor at {sharedAnchor.position}. Ready to sync positions.");
+        }
         
         // Set player name (Host = Player 1, Client = Player 2)
         if (Object.HasStateAuthority)
@@ -330,10 +349,20 @@ public class NetworkedPlayer : NetworkBehaviour
     {
         if (!isInitialized || sharedAnchor == null) return;
         
-        if (Object.HasInputAuthority)
+        // Must have StateAuthority to modify [Networked] properties
+        if (Object.HasInputAuthority && Object.HasStateAuthority)
         {
             // Local player: sync positions to network
             SyncLocalToNetwork();
+        }
+        else if (Object.HasInputAuthority && !Object.HasStateAuthority)
+        {
+            // Still waiting for StateAuthority - request again
+            if (Time.frameCount % 100 == 0)
+            {
+                Debug.LogWarning("[NetworkedPlayer] Have InputAuthority but no StateAuthority yet - requesting...");
+                Object.RequestStateAuthority();
+            }
         }
     }
     
@@ -360,21 +389,33 @@ public class NetworkedPlayer : NetworkBehaviour
         
         if (sharedAnchor == null)
         {
-            Debug.LogWarning("[NetworkedPlayer] SyncLocalToNetwork: sharedAnchor is null!");
+            if (Time.frameCount % 100 == 0)
+            {
+                Debug.LogWarning("[NetworkedPlayer] SyncLocalToNetwork: sharedAnchor is null! Cannot sync positions.");
+            }
             return;
         }
         
-        if (localHead != null)
+        if (localHead == null)
         {
-            AnchorRelativeHeadPos = sharedAnchor.InverseTransformPoint(localHead.position);
-            AnchorRelativeHeadRot = Quaternion.Inverse(sharedAnchor.rotation) * localHead.rotation;
-            
-            // Log occasionally for debugging
-            if (Time.frameCount % 300 == 0)
+            if (Time.frameCount % 100 == 0)
             {
-                Debug.Log($"[NetworkedPlayer] Syncing head pos: world={localHead.position}, anchorRel={AnchorRelativeHeadPos}");
+                Debug.LogWarning("[NetworkedPlayer] SyncLocalToNetwork: localHead is null!");
             }
+            return;
         }
+        
+        Vector3 newHeadPos = sharedAnchor.InverseTransformPoint(localHead.position);
+        Quaternion newHeadRot = Quaternion.Inverse(sharedAnchor.rotation) * localHead.rotation;
+        
+        // Only log if position actually changed (shows sync is working)
+        if (Time.frameCount % 100 == 0)
+        {
+            Debug.Log($"[NetworkedPlayer] LOCAL SYNC: head world={localHead.position}, anchorRel={newHeadPos}, anchor at {sharedAnchor.position}");
+        }
+        
+        AnchorRelativeHeadPos = newHeadPos;
+        AnchorRelativeHeadRot = newHeadRot;
         
         if (localLeftHand != null)
         {
@@ -404,17 +445,17 @@ public class NetworkedPlayer : NetworkBehaviour
     {
         if (sharedAnchor == null)
         {
-            if (Time.frameCount % 300 == 0)
+            if (Time.frameCount % 100 == 0)
             {
-                Debug.LogWarning("[NetworkedPlayer] UpdateRemoteVisuals: sharedAnchor is null!");
+                Debug.LogWarning("[NetworkedPlayer] UpdateRemoteVisuals: sharedAnchor is null! Cannot display remote player.");
             }
             return;
         }
         
-        // Log occasionally for debugging
-        if (Time.frameCount % 300 == 0)
+        // Log more frequently to see if networked values are updating
+        if (Time.frameCount % 100 == 0)
         {
-            Debug.Log($"[NetworkedPlayer] Remote visual update: anchorRelHeadPos={AnchorRelativeHeadPos}, anchor={sharedAnchor.position}");
+            Debug.Log($"[NetworkedPlayer] REMOTE UPDATE: anchorRelHeadPos={AnchorRelativeHeadPos}, anchor={sharedAnchor.position}, computed world pos={sharedAnchor.TransformPoint(AnchorRelativeHeadPos)}");
         }
         
         // Calculate world positions from anchor-relative positions
