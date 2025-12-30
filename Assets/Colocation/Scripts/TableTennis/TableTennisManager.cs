@@ -383,12 +383,18 @@ public class TableTennisManager : NetworkBehaviour
     private IEnumerator WaitForAnchor()
     {
         int attempts = 0;
+        Debug.Log("[TableTennisManager] Starting to search for anchor...");
+        
         while (sharedAnchor == null && attempts < 50)
         {
             // Look for any OVRSpatialAnchor that was preserved from the previous scene
             var anchors = FindObjectsOfType<OVRSpatialAnchor>(true); // Include inactive
+            Debug.Log($"[TableTennisManager] Attempt {attempts}: Found {anchors.Length} OVRSpatialAnchor objects");
+            
             foreach (var anchor in anchors)
             {
+                Debug.Log($"[TableTennisManager] Checking anchor: {anchor.gameObject.name}, Localized: {anchor.Localized}, UUID: {anchor.Uuid}");
+                
                 // Check if anchor is localized and valid
                 if (anchor != null && anchor.Localized)
                 {
@@ -424,6 +430,10 @@ public class TableTennisManager : NetworkBehaviour
                 sharedAnchor = tableTransform;
                 Debug.Log("[TableTennisManager] Using table as fallback anchor reference");
             }
+        }
+        else
+        {
+            Debug.Log($"[TableTennisManager] Anchor found and set: {sharedAnchor.name} at position {sharedAnchor.position}");
         }
     }
     

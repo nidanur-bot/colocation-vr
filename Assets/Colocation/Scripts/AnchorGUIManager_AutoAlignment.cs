@@ -592,23 +592,37 @@ public class AnchorAutoGUIManager : ColocationManager
     /// </summary>
     private void PreserveObjectsForSceneTransition()
     {
+        Debug.Log($"[AnchorGUI] PreserveObjectsForSceneTransition called. _localizedAnchor: {_localizedAnchor != null}");
+        
         // Preserve the localized anchor (this is crucial for alignment in new scene)
         if (_localizedAnchor != null)
         {
             DontDestroyOnLoad(_localizedAnchor.gameObject);
-            Debug.Log($"[AnchorGUI] Preserved anchor for scene transition: {_localizedAnchor.Uuid}");
+            Debug.Log($"[AnchorGUI] Preserved anchor for scene transition: {_localizedAnchor.Uuid}, position: {_localizedAnchor.transform.position}");
         }
         else
         {
-            Debug.LogWarning("[AnchorGUI] No localized anchor to preserve!");
+            Debug.LogWarning("[AnchorGUI] No localized anchor to preserve! Trying to find any OVRSpatialAnchor...");
+            
+            // Try to find any OVRSpatialAnchor
+            foreach (var anchor in FindObjectsOfType<OVRSpatialAnchor>())
+            {
+                if (anchor != null && anchor.Localized)
+                {
+                    DontDestroyOnLoad(anchor.gameObject);
+                    Debug.Log($"[AnchorGUI] Preserved found anchor: {anchor.Uuid}");
+                }
+            }
         }
 
         // Also preserve all tracked anchors
+        Debug.Log($"[AnchorGUI] Preserving {currentAnchors.Count} tracked anchors");
         foreach (var anchor in currentAnchors)
         {
             if (anchor != null && anchor.gameObject != null)
             {
                 DontDestroyOnLoad(anchor.gameObject);
+                Debug.Log($"[AnchorGUI] Preserved tracked anchor: {anchor.Uuid}");
             }
         }
     }
