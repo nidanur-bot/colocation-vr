@@ -15,8 +15,9 @@ public class NetworkedBall : NetworkBehaviour
     [SerializeField] private float tableHeight = 0.76f; // Standard table tennis height
     
     [Header("Serve Settings")]
-    [SerializeField] private Vector3 servePosition = new Vector3(0, 1.2f, -1f); // Relative to anchor
+    [SerializeField] private Vector3 servePosition = new Vector3(0, 1.2f, 0f); // Relative to anchor - centered, at eye level
     [SerializeField] private float serveForce = 3f;
+    [SerializeField] private bool startFrozen = true; // Ball hangs in air until hit
     
     [Header("Sync Settings")]
     [SerializeField] private float syncRate = 30f; // Hz
@@ -29,6 +30,7 @@ public class NetworkedBall : NetworkBehaviour
     [Networked] private Vector3 AnchorRelativePosition { get; set; }
     [Networked] private Vector3 AnchorRelativeVelocity { get; set; }
     [Networked] private NetworkBool IsInPlay { get; set; }
+    [Networked] private NetworkBool IsFrozen { get; set; } // Ball hangs in air until first hit
     
     // Local state
     private Transform sharedAnchor;
@@ -50,6 +52,15 @@ public class NetworkedBall : NetworkBehaviour
         if (rb == null)
         {
             rb = gameObject.AddComponent<Rigidbody>();
+        }
+        
+        // Ensure ball has a collider
+        var collider = GetComponent<Collider>();
+        if (collider == null)
+        {
+            var sphereCollider = gameObject.AddComponent<SphereCollider>();
+            sphereCollider.radius = 0.02f; // Ping pong ball radius ~2cm
+            Debug.Log("[NetworkedBall] Added SphereCollider");
         }
         
         // Configure rigidbody
@@ -156,6 +167,14 @@ public class NetworkedBall : NetworkBehaviour
     
     private void SimulatePhysics()
     {
+        // If frozen, don't apply physics - ball hangs in air
+        if (IsFrozen)
+        {
+            rb.velocity = Vector3.zero;
+            rb.angularVelocity = Vector3.zero;
+            return;
+        }
+        
         localVelocity = rb.velocity;
         localVelocity.y -= gravity * Runner.DeltaTime;
         rb.velocity = localVelocity;
@@ -240,12 +259,13 @@ public class NetworkedBall : NetworkBehaviour
         localVelocity = Vector3.zero;
         
         IsInPlay = false;
+        IsFrozen = startFrozen; // Freeze ball in air until hit
         lastHitTime = Time.time;
         
         AnchorRelativePosition = servePosition;
         AnchorRelativeVelocity = Vector3.zero;
         
-        Debug.Log($"[NetworkedBall] Reset to serve position: {worldServePos}");
+        Debug.Log($"[NetworkedBall] Reset to serve position: {worldServePos}, Frozen: {IsFrozen}");
     }
     
     /// <summary>
@@ -254,6 +274,9 @@ public class NetworkedBall : NetworkBehaviour
     public void OnRacketHit(Vector3 hitVelocity, Vector3 hitPoint)
     {
         if (!Object.HasStateAuthority) return;
+        
+        // Unfreeze the ball when hit
+        IsFrozen = false;
         
         rb.velocity = hitVelocity;
         localVelocity = hitVelocity;
@@ -305,22 +328,33 @@ public class NetworkedBall : NetworkBehaviour
         if (!Object.HasStateAuthority) return;
         
         if (collision.gameObject.CompareTag("Racket") || 
-            collision.gameObject.layer == LayerMask.NameToLayer("Racket"))
+            collision.gameObject.layer == LayerMask.NameToLayer("Racket") ||
+            collision.gameObject.name.Contains("Racket"))
         {
-            Rigidbody racketRb = collision.gameObject.GetComponent<Rigidbody>();
             Vector3 hitVelocity;
             
-            if (racketRb != null)
+            // Try to get velocity from Rigidbody first
+            Rigidbody racketRb = collision.gameObject.GetComponent<Rigidbody>();
+            if (racketRb != null && racketRb.velocity.magnitude > 0.1f)
             {
                 hitVelocity = racketRb.velocity * 1.5f;
             }
             else
             {
-                hitVelocity = collision.relativeVelocity * 0.8f;
+                // Use controller velocity from OVRInput
+                Vector3 leftVel = OVRInput.GetLocalControllerVelocity(OVRInput.Controller.LTouch);
+                Vector3 rightVel = OVRInput.GetLocalControllerVelocity(OVRInput.Controller.RTouch);
+                hitVelocity = leftVel.magnitude > rightVel.magnitude ? leftVel : rightVel;
+                hitVelocity *= 2f;
+                
+                if (hitVelocity.magnitude < 0.5f)
+                {
+                    hitVelocity = collision.relativeVelocity * 0.8f;
+                }
             }
             
             hitVelocity.y = Mathf.Max(hitVelocity.y, 1f);
-            
+            Debug.Log($"[NetworkedBall] Collision hit with velocity: {hitVelocity}");
             OnRacketHit(hitVelocity, collision.contacts[0].point);
         }
     }
@@ -329,15 +363,23 @@ public class NetworkedBall : NetworkBehaviour
     {
         if (!Object.HasStateAuthority) return;
         
-        if (other.CompareTag("Racket"))
+        if (other.CompareTag("Racket") || other.gameObject.name.Contains("Racket"))
         {
-            Rigidbody racketRb = other.GetComponent<Rigidbody>();
-            if (racketRb != null)
+            Vector3 leftVel = OVRInput.GetLocalControllerVelocity(OVRInput.Controller.LTouch);
+            Vector3 rightVel = OVRInput.GetLocalControllerVelocity(OVRInput.Controller.RTouch);
+            Vector3 hitVelocity = leftVel.magnitude > rightVel.magnitude ? leftVel : rightVel;
+            hitVelocity *= 2f;
+            hitVelocity.y = Mathf.Max(hitVelocity.y, 1f);
+            
+            if (hitVelocity.magnitude < 1f)
             {
-                Vector3 hitVelocity = racketRb.velocity * 1.5f;
-                hitVelocity.y = Mathf.Max(hitVelocity.y, 1f);
-                OnRacketHit(hitVelocity, other.ClosestPoint(transform.position));
+                Vector3 toTable = (sharedAnchor != null ? sharedAnchor.position : Vector3.zero) - transform.position;
+                toTable.y = 0;
+                hitVelocity = toTable.normalized * 2f + Vector3.up;
             }
+            
+            Debug.Log($"[NetworkedBall] Trigger hit with velocity: {hitVelocity}");
+            OnRacketHit(hitVelocity, other.ClosestPoint(transform.position));
         }
     }
 }

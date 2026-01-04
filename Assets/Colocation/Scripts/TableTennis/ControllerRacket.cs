@@ -11,11 +11,25 @@ public class ControllerRacket : MonoBehaviour
     [SerializeField] private GameObject racketPrefab; // Racket model to show on controller
     
     [Header("Settings")]
-    [SerializeField] private OVRInput.Button rightActivateButton = OVRInput.Button.Two; // B button for right controller
-    [SerializeField] private OVRInput.Button leftActivateButton = OVRInput.Button.Four; // Y button for left controller
+    [SerializeField] private OVRInput.Button rightActivateButton = OVRInput.Button.Two; // B button for right controller (Button.Two = B when using RTouch)
+    [SerializeField] private OVRInput.Button leftActivateButton = OVRInput.Button.Two; // Y button for left controller (Button.Two = Y when using LTouch)
     [SerializeField] private Vector3 racketOffset = new Vector3(0f, 0.03f, 0.04f); // Position offset from controller
-    [SerializeField] private Vector3 racketRotation = new Vector3(0, 270, 40); // Rotation to align handle with controller grip
+    [SerializeField] private Vector3 racketRotation = new Vector3(-33f, 241f, 42f); // Rotation to align handle with controller grip
     [SerializeField] private float racketScale = 10f; // 10x scale for visibility
+    
+    [Header("Rotation Adjustment (Thumbsticks)")]
+    [SerializeField] private float rotationSpeed = 90f; // Degrees per second
+    [Tooltip("Left stick horizontal = Y rotation, Right stick horizontal = Z rotation")]
+    [SerializeField] private bool enableRotationAdjustment = false; // Disabled - rotation is set
+    
+    [Header("Offset Adjustment (Hold grip + right stick)")]
+    [SerializeField] private float offsetSpeed = 0.1f; // Meters per second (slower for fine adjustment)
+    [Tooltip("Hold grip + right stick: vertical = Y offset, horizontal = Z offset")]
+    [SerializeField] private bool enableOffsetAdjustment = true;
+    
+    [Header("Debug")]
+    [Tooltip("DEBUG: Show both controller AND racket at the same time for alignment")]
+    [SerializeField] private bool debugShowBothVisuals = true; // SET TO FALSE AFTER DEBUGGING
     
     // Controller references
     private Transform leftController;
@@ -51,7 +65,9 @@ public class ControllerRacket : MonoBehaviour
         if (racketPrefab != null)
         {
             CreateControllerRackets();
-            racketsCreated = true;
+            // Only mark as created if both rackets were actually created
+            racketsCreated = (leftRacket != null) && (rightRacket != null);
+            Debug.Log($"[ControllerRacket] Initial racket creation - Left: {leftRacket != null}, Right: {rightRacket != null}, Complete: {racketsCreated}");
         }
         else
         {
@@ -247,39 +263,88 @@ public class ControllerRacket : MonoBehaviour
     
     private void CleanupRacketComponents(GameObject racket)
     {
-        // Remove components that shouldn't be on the controller-attached version
+        // Remove rigidbody - we don't want physics on controller-attached racket
         var rb = racket.GetComponent<Rigidbody>();
         if (rb != null) Destroy(rb);
         
-        // Keep collider for ball hits
+        // Set tag to "Racket" for ball collision detection
+        racket.tag = "Racket";
+        
+        // Ensure there's a collider for ball hits
+        var collider = racket.GetComponent<Collider>();
+        if (collider == null)
+        {
+            // Try to find collider in children
+            collider = racket.GetComponentInChildren<Collider>();
+        }
+        
+        if (collider == null)
+        {
+            // Add a box collider if none exists
+            var boxCollider = racket.AddComponent<BoxCollider>();
+            boxCollider.size = new Vector3(0.15f, 0.01f, 0.15f); // Paddle face size
+            boxCollider.center = new Vector3(0, 0, 0.1f); // Offset to paddle face
+            Debug.Log("[ControllerRacket] Added BoxCollider to racket");
+        }
+        else
+        {
+            // Make sure it's not a trigger (we want collision detection)
+            collider.isTrigger = false;
+        }
+        
+        // Also tag all children
+        foreach (Transform child in racket.GetComponentsInChildren<Transform>())
+        {
+            child.gameObject.tag = "Racket";
+        }
+        
+        Debug.Log($"[ControllerRacket] Racket setup complete - Tag: {racket.tag}, HasCollider: {racket.GetComponent<Collider>() != null || racket.GetComponentInChildren<Collider>() != null}");
     }
     
     private void Update()
     {
+        // Always try to find controllers if missing
         if (leftController == null || rightController == null)
         {
             FindControllers();
-            return;
         }
         
         // Retry creating rackets if not done yet (in case racket prefab wasn't found on Start)
-        if (!racketsCreated)
+        if (racketPrefab == null)
         {
-            if (racketPrefab == null)
+            FindRacketTemplate();
+        }
+        
+        // Check if we need to create/retry racket creation
+        // Create rackets if prefab exists and either racket is missing (and its controller is available)
+        bool needsLeftRacket = leftController != null && leftRacket == null;
+        bool needsRightRacket = rightController != null && rightRacket == null;
+        
+        if (racketPrefab != null && (needsLeftRacket || needsRightRacket))
+        {
+            Debug.Log($"[ControllerRacket] Creating missing rackets - Left needed: {needsLeftRacket}, Right needed: {needsRightRacket}");
+            CreateRacketOnController();
+            
+            // Only mark as fully created if both rackets exist now
+            racketsCreated = (leftRacket != null) && (rightRacket != null);
+            if (racketsCreated)
             {
-                FindRacketTemplate();
+                Debug.Log("[ControllerRacket] Both rackets now created successfully");
             }
-            if (racketPrefab != null)
-            {
-                CreateControllerRackets();
-                racketsCreated = true;
-                Debug.Log("[ControllerRacket] Rackets created on retry");
-            }
+        }
+        
+        // Skip input handling if controllers aren't ready yet
+        if (leftController == null || rightController == null)
+        {
             return;
         }
         
         // Check for toggle on left controller (Y button)
         bool leftPressed = OVRInput.Get(leftActivateButton, OVRInput.Controller.LTouch);
+        if (leftPressed)
+        {
+            Debug.Log($"[RACKET_DEBUG] Left button PRESSED - wasPressed: {leftWasPressed}");
+        }
         if (leftPressed && !leftWasPressed)
         {
             // If left is already active, deactivate it
@@ -335,10 +400,58 @@ public class ControllerRacket : MonoBehaviour
             }
         }
         rightWasPressed = rightPressed;
+        
+        // Thumbstick rotation adjustment (if enabled)
+        if (enableRotationAdjustment && (leftActive || rightActive))
+        {
+            Vector2 leftStick = OVRInput.Get(OVRInput.Axis2D.PrimaryThumbstick, OVRInput.Controller.LTouch);
+            float rightStickX = OVRInput.Get(OVRInput.Axis2D.PrimaryThumbstick, OVRInput.Controller.RTouch).x;
+            
+            if (Mathf.Abs(leftStick.x) > 0.1f || Mathf.Abs(leftStick.y) > 0.1f || Mathf.Abs(rightStickX) > 0.1f)
+            {
+                racketRotation.x += leftStick.y * rotationSpeed * Time.deltaTime;
+                racketRotation.y += leftStick.x * rotationSpeed * Time.deltaTime;
+                racketRotation.z += rightStickX * rotationSpeed * Time.deltaTime;
+                
+                if (leftActive && leftRacket != null)
+                    leftRacket.transform.localRotation = Quaternion.Euler(racketRotation);
+                if (rightActive && rightRacket != null)
+                    rightRacket.transform.localRotation = Quaternion.Euler(racketRotation);
+                
+                Debug.Log($"[RACKET_DEBUG] Rotation: X={racketRotation.x:F1}, Y={racketRotation.y:F1}, Z={racketRotation.z:F1}");
+            }
+        }
+        
+        // Offset adjustment (separate from rotation)
+        if (enableOffsetAdjustment && (leftActive || rightActive))
+        {
+            Vector2 rightStick = OVRInput.Get(OVRInput.Axis2D.PrimaryThumbstick, OVRInput.Controller.RTouch);
+            
+            if (Mathf.Abs(rightStick.x) > 0.1f || Mathf.Abs(rightStick.y) > 0.1f)
+            {
+                // Right stick vertical = Y offset (up/down)
+                racketOffset.y += rightStick.y * offsetSpeed * Time.deltaTime;
+                // Right stick horizontal = Z offset (forward/back)
+                racketOffset.z += rightStick.x * offsetSpeed * Time.deltaTime;
+                
+                if (leftActive && leftRacket != null)
+                    leftRacket.transform.localPosition = racketOffset;
+                if (rightActive && rightRacket != null)
+                    rightRacket.transform.localPosition = racketOffset;
+                
+                Debug.Log($"[RACKET_DEBUG] Offset: Y={racketOffset.y:F3}, Z={racketOffset.z:F3}");
+            }
+        }
     }
     
     private void SetControllerVisualActive(GameObject controllerVisual, bool active)
     {
+        // DEBUG: If debug mode is on, always show controller visual
+        if (debugShowBothVisuals)
+        {
+            active = true;
+        }
+        
         if (controllerVisual != null)
         {
             // Disable all renderers in the controller visual hierarchy
